@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shapefall: Neon Survivors</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">✦</span><div><h1>SHAPEFALL</h1><p>NEON SURVIVORS // RUN 01</p></div></div>
+      <div class="wave-readout"><span>WAVE</span><strong id="waveNumber">1</strong><i id="waveState">INCOMING</i></div>
+      <div class="top-actions"><label class="toggle"><input id="autoContinue" type="checkbox"><span></span> AUTO-CONTINUE</label><button id="pauseBtn" class="icon-btn" aria-label="Pause game">Ⅱ</button></div>
+    </header>
+
+    <section class="game-wrap">
+      <canvas id="game" width="960" height="600"></canvas>
+      <div class="arena-label">SECTOR 07 <span>•</span> HOSTILES DETECTED</div>
+      <div class="health-hud"><span>HULL INTEGRITY</span><div class="bar health"><i id="healthFill"></i></div><b id="healthText">100 / 100</b></div>
+      <div class="weapon-hud"><span>ARMAMENT</span><div id="weaponList"></div></div>
+      <div class="xp-hud"><div class="xp-meta"><span>ASCENSION</span><b id="levelText">LV 1</b><em id="xpText">0 / 100 XP</em></div><div class="bar xp"><i id="xpFill"></i></div></div>
+      <div class="hint">WASD / ARROWS <span>MOVE</span><i>•</i> SPACE <span>PAUSE</span></div>
+      <div id="toast" class="toast"></div>
+      <div id="overlay" class="overlay hidden"></div>
+    </section>
+    <footer><span>RUN TIME <b id="timer">00:00</b></span><span>HOSTILES <b id="killCount">0</b></span><span>BEST WAVE <b id="bestWave">1</b></span><span class="footer-tip">COLLECT ✦ REMNANTS TO EVOLVE</span></footer>
+  </main>
+  <script src="game.js"></script>
+</body>
+</html>
