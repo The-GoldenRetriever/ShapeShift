@@ -14,7 +14,7 @@
     <header class="topbar">
       <div class="brand"><span class="brand-mark">✦</span><div><h1>SHAPESHIFT</h1><p>NEON SURVIVORS // RUN 01</p></div></div>
       <div class="wave-readout"><span>ROOM</span><strong id="waveNumber">1</strong><i id="waveState">HOSTILES INBOUND</i></div>
-      <div class="top-actions"><button id="pauseBtn" class="icon-btn" aria-label="Pause game">Ⅱ</button></div>
+      <div class="top-actions"><button id="fsBtn" class="icon-btn" aria-label="Toggle fullscreen" title="Fullscreen (F)">⛶</button><button id="pauseBtn" class="icon-btn" aria-label="Pause game" title="Pause (Space)">Ⅱ</button></div>
     </header>
 
     <section class="game-wrap">
@@ -23,7 +23,7 @@
       <div class="health-hud"><span>HULL INTEGRITY</span><div class="bar health"><i id="healthFill"></i></div><b id="healthText">100 / 100</b></div>
       <div class="weapon-hud"><span>ARMAMENT</span><div id="weaponList"></div></div>
       <div class="xp-hud"><div class="xp-meta"><span>ASCENSION</span><b id="levelText">LV 1</b><em id="xpText">0 / 100 XP</em></div><div class="bar xp"><i id="xpFill"></i></div></div>
-      <div class="hint">WASD / ARROWS <span>MOVE</span><i>•</i> SHIFT <span>DASH</span><i>•</i> E <span>PHASE</span></div>
+      <div class="hint">WASD / ARROWS <span>MOVE</span><em id="hintPhase"><i>•</i> E <span>PHASE</span></em></div>
       <div class="dash-hud"><span>DASH</span><b id="dashText">READY</b><small>SHIFT</small></div>
       <div id="toast" class="toast"></div>
       <div id="overlay" class="overlay"></div>
