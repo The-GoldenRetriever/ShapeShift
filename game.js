@@ -1,6 +1,6 @@
 const canvas = document.querySelector('#game');
 const ctx = canvas.getContext('2d');
-const W = 1040, H = 660;
+const W = 1200, H = 750;
 const $ = id => document.querySelector(id);
 const ui = { hp: $('#healthFill'), hpText: $('#healthText'), xp: $('#xpFill'), xpText: $('#xpText'), level: $('#levelText'), weapons: $('#weaponList'), room: $('#waveNumber'), roomState: $('#waveState'), kills: $('#killCount'), timer: $('#timer'), overlay: $('#overlay') };
 const keys = new Set();
@@ -16,8 +16,8 @@ const types = {
   boss: { hp: 360, speed: 27, r: 52, color: '#ff4f9a', xp: 120, sides: 8 }
 };
 let player, enemies, arrows, enemyBullets, stars, particles, blasts, echoShots, damageNumbers, delayedBlasts, state;
-let highscore = localStorage.getItem('shapefall_best_room') || 0;
-const difficulties = { easy: { label: 'EASY', hp: .86, speed: .88, note: 'Relaxed enemy stats' }, medium: { label: 'MEDIUM', hp: 1, speed: 1, note: 'Standard enemy stats' }, hard: { label: 'HARD', hp: 1.28, speed: 1.2, note: 'Fast, reinforced enemies' }, impossible: { label: 'IMPOSSIBLE', hp: 2, speed: 1.5, note: 'Absolute carnage. Good luck.' } };
+let highscore = localStorage.getItem('shapeshift_best_room') || 0;
+const difficulties = { easy: { label: 'EASY', hp: .86, speed: .88, note: 'Relaxed enemy stats' }, medium: { label: 'MEDIUM', hp: 1, speed: 1, note: 'Standard enemy stats' }, hard: { label: 'HARD', hp: 1.28, speed: 1.2, note: 'Fast, reinforced enemies' }, impossible: { label: 'IMPOSSIBLE', hp: 3, speed: 1.8, note: 'Absolute carnage. Good luck.' } };
 
 function resize() {
   const dpr = Math.min(devicePixelRatio || 1, 2);
@@ -175,7 +175,26 @@ function update(dt) {
 }
 function moveEnemy(e,dt) {
   const difficulty=difficulties[state.difficulty], spec=types[e.type], a=ang(e,player)+(e.type==='bowtie'?Math.sin(state.time*5+e.phase)*.75:0);
-  e.x+=Math.cos(a)*spec.speed*difficulty.speed*dt;e.y+=Math.sin(a)*spec.speed*difficulty.speed*dt;e.flash=Math.max(0,e.flash-dt);
+
+  if(e.boss){
+    e.dashCooldown=(e.dashCooldown||0)-dt;
+    e.dashTime=(e.dashTime||0)-dt;
+    if(e.dashCooldown<=0 && e.dashTime<=0){
+      e.dashTime=0.3;
+      e.dashCooldown=3+rand(0,2);
+    }
+    if(e.dashTime>0){
+      const dashSpeed=spec.speed*5*difficulty.speed;
+      e.x+=Math.cos(a)*dashSpeed*dt;e.y+=Math.sin(a)*dashSpeed*dt;
+      burst(e.x,e.y,spec.color,2,100);
+    }else{
+      e.x+=Math.cos(a)*spec.speed*difficulty.speed*dt;e.y+=Math.sin(a)*spec.speed*difficulty.speed*dt;
+    }
+  }else{
+    e.x+=Math.cos(a)*spec.speed*difficulty.speed*dt;e.y+=Math.sin(a)*spec.speed*difficulty.speed*dt;
+  }
+
+  e.flash=Math.max(0,e.flash-dt);
   e.touch=(e.touch||0)-dt;
   if(dist(e,player)<e.r+player.r&&e.touch<=0){if(state.dashTime<=0){const baseDamage=e.boss?28:10+spec.hp*1.5+(spec.speed>=60?5:0),damage=baseDamage*(1+(state.room-1)*.025)*difficulty.speed*(state.weapons.sword?.guard?.8:1);const lethal=!e.boss&&state.difficulty==='hard'&&(e.type==='trap'||e.type==='pentagon');hurt(lethal?player.hp:damage);if(!e.boss){e.hp=0;spawnDamageNumber(e.x,e.y,999,'#fff');shake(4);}}e.touch=.55;burst(e.x,e.y,spec.color,10,110);}
   e.shoot-=dt;
@@ -196,7 +215,7 @@ function updateEnemyBullets(dt) {
   enemyBullets=enemyBullets.filter(b=>b.life>0&&b.x>0&&b.x<W&&b.y>0&&b.y<H);
 }
 function updateStars(dt) {
-  for(const s of stars){s.spin+=dt*5;const d=dist(s,player);if(d<210){s.x+=(player.x-s.x)*dt*3;s.y+=(player.y-s.y)*dt*3;}if(d<28){state.xp+=s.value;s.dead=true;burst(s.x,s.y,'#ffe17a',8,90);}}
+  for(const s of stars){s.spin+=dt*5;const d=dist(s,player);if(d<210){s.x+=(player.x-s.x)*dt*7;s.y+=(player.y-s.y)*dt*7;}if(d<28){state.xp+=s.value;s.dead=true;burst(s.x,s.y,'#ffe17a',8,90);}}
   stars=stars.filter(s=>!s.dead);if(state.xp>=state.need) levelUp();
 }
 function xpValue(spec){const difficultyBonus=state.difficulty==='hard'?1.1:state.difficulty==='easy'?.95:1;const healthBonus=1+Math.max(0,spec.hp-1)*.03;const speedBonus=spec.speed>=60?1.08:1;return Math.max(1,Math.round(spec.xp*healthBonus*speedBonus*difficultyBonus));}
@@ -208,7 +227,7 @@ function updateDelayedBlasts(dt){for(const b of delayedBlasts){b.timer-=dt;if(b.
 function finishRoom(){if(state.exit||state.transitioning||state.victoryPortal)return;state.active=false;state.intermission=true;if(state.room%10===0&&!state.relicRooms[state.room]){showRelics();return;}state.victoryPortal={x:W/2,y:H/2,r:30};}
 function nextRoom(){
   if(state.difficulty==='hard' && state.room===10){
-    localStorage.setItem('shapefall_hard_beaten', 'true');
+    localStorage.setItem('shapeshift_hard_beaten', 'true');
   }
   state.room++;player.x=W/2;player.y=H/2;beginRoom();
 }
@@ -261,7 +280,7 @@ function shuffle(items){for(let i=items.length-1;i>0;i--){const j=Math.floor(Mat
 function levelUp(){
   if(state.paused||state.upgradeOpen)return;
   state.xp-=state.need;state.need=Math.floor(state.need*1.25);state.level++;state.paused=true;state.upgradeOpen=true;
-  const weaponChoices=availableWeaponChoices(),globals=[{id:'health',kind:'global',name:'REINFORCED HULL',desc:'Maximum health +25 and fully repairs.'},{id:'speed',kind:'global',name:'RUNNING SHOES',desc:'Movement speed +18%.'},{id:'regen',kind:'global',name:'NANITE REPAIR',desc:'Health regeneration +2 per second.'}],pendingUltimates=weaponChoices.filter(u=>u.kind==='ultimate');
+  const weaponChoices=availableWeaponChoices(),globals=[{id:'health',kind:'global',name:'REINFORCED HULL',desc:'Maximum health +25 and fully repairs.'},{id:'speed',kind:'global',name:'KINETIC THRUSTERS',desc:'Movement speed +18%.'},{id:'regen',kind:'global',name:'NANITE REPAIR',desc:'Health regeneration +2 per second.'}],pendingUltimates=weaponChoices.filter(u=>u.kind==='ultimate');
   const choices=pendingUltimates.length?shuffle(pendingUltimates).slice(0,3).concat(shuffle(globals).slice(0,Math.max(0,3-pendingUltimates.length))):shuffle(weaponChoices.concat(globals)).slice(0,3);
   show('<div class="modal"><div class="eyebrow">ASCENSION // LEVEL '+state.level+'</div><h2>Choose an upgrade</h2><p>Each card shows the exact change it will make.</p><div class="cards">'+choices.map((u,i)=>'<div class="card"><span class="card-key">0'+(i+1)+' // '+(u.kind==='ultimate'?'ULTIMATE':'UPGRADE')+'</span><h3>'+u.name+'</h3><p>'+u.desc+'</p><button data-up="'+u.id+'">INSTALL</button></div>').join('')+'</div></div>');
   document.querySelectorAll('[data-up]').forEach(b=>b.onclick=()=>upgrade(b.dataset.up));
@@ -281,7 +300,7 @@ function pause(){if(!state||state.intermission)return;state.paused=!state.paused
 function gameOver(){
   if(state.room > highscore) {
     highscore = state.room;
-    localStorage.setItem('shapefall_best_room', highscore);
+    localStorage.setItem('shapeshift_best_room', highscore);
   }
   state.paused=true;show('<div class="modal"><div class="eyebrow">SIGNAL LOST</div><h2>Run terminated</h2><p>Room '+state.room+' • '+state.kills+' hostiles cleared</p><p style="font-size:0.9em; opacity:0.7; margin-bottom:1em;">Best Room: '+highscore+'</p><button class="continue" id="restart">REBOOT RUN</button></div>');$('#restart').onclick=()=>reset(state.difficulty);}
 function show(markup){ui.overlay.innerHTML=markup;ui.overlay.classList.remove('hidden');}function hide(){ui.overlay.classList.add('hidden');ui.overlay.innerHTML='';}
@@ -317,9 +336,11 @@ function drawVictorySequence(){
   }
   if(state.victorySequence==='lightspeed'){
     ctx.save();
-    ctx.strokeStyle='#c5f4ff';
+    const progress=1-state.victoryTimer/3.0;
+    const speedMult=10 + (progress*100);
+    ctx.strokeStyle=`rgb(${197-progress*100},${244-progress*100},${255})`;
     ctx.lineWidth=2;
-    const t=state.time*10;
+    const t=state.time*speedMult;
     for(let i=0;i<32;i++){
       const a=i/32*Math.PI*2;
       const len= ( (i*100 + t*200) % 600 ) - 200;
@@ -329,6 +350,10 @@ function drawVictorySequence(){
       ctx.lineTo(x2,y2);
       ctx.stroke();
     }
+    ctx.restore();
+    ctx.save();
+    ctx.fillStyle=`rgba(0, 80, 255, ${progress*0.6})`;
+    ctx.fillRect(0,0,W,H);
     ctx.restore();
   }
   if(state.victorySequence==='fade-in' && state.victoryTimer > 0.4){
@@ -379,8 +404,8 @@ function ultimateEffects(dt){
 }
 function frame(now){if(!state){ctx.clearRect(0,0,W,H);ctx.fillStyle='#090f1b';ctx.fillRect(0,0,W,H);requestAnimationFrame(frame);return;}const dt=Math.min(.033,(now-state.last)/1000);state.last=now;if(!state.paused){update(dt);ultimateEffects(dt);}draw();requestAnimationFrame(frame);}
 function showStart(){
-  const hardBeaten = localStorage.getItem('shapefall_hard_beaten') === 'true';
-  show('<div class="modal"><div class="eyebrow">SHAPEFALL // NEON SURVIVORS</div><h2>Choose your difficulty</h2><p>Move with WASD or arrow keys. Your bow fires automatically at the nearest enemy.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>Enemies have reduced health and move slower.</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Standard enemy health and speed.</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>Enemies are faster and have 28% more health.</p><button data-difficulty="hard">START HARD</button></div>' + (hardBeaten ? '<div class="card" style="border-color:#ff0000; box-shadow: 0 0 15px #ff000044;"><span class="card-key" style="color:#ff4f9a">04 // ELITE</span><h3 style="color:#ff4f9a">IMPOSSIBLE</h3><p>Absolute carnage. Good luck.</p><button data-difficulty="impossible" style="background:#ff4f9a">START IMPOSSIBLE</button></div>' : '') + '</div></div></div>');
+  const hardBeaten = localStorage.getItem('shapeshift_hard_beaten') === 'true';
+  show('<div class="modal"><div class="eyebrow">SHAPESHIFT // NEON SURVIVORS</div><h2>Choose your difficulty</h2><p>Move with WASD or arrow keys. Your bow fires automatically at the nearest enemy.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>Enemies have reduced health and move slower.</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Standard enemy health and speed.</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>Enemies are faster and have 28% more health.</p><button data-difficulty="hard">START HARD</button></div>' + (hardBeaten ? '<div class="card" style="border-color:#ff0000; box-shadow: 0 0 15px #ff000044;"><span class="card-key" style="color:#ff4f9a">04 // ELITE</span><h3 style="color:#ff4f9a">IMPOSSIBLE</h3><p>Absolute carnage. Good luck.</p><button data-difficulty="impossible" style="background:#ff4f9a">START IMPOSSIBLE</button></div>' : '') + '</div></div></div>');
   document.querySelectorAll('[data-difficulty]').forEach(b=>b.onclick=()=>reset(b.dataset.difficulty));
 }
 $('#pauseBtn').onclick=pause;
