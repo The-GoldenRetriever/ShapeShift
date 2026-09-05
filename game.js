@@ -52,7 +52,9 @@ function saveProfile(){
 const creditRate=d=>(difficulties[d]||difficulties.medium).credits;
 // the room term compounds ~4.5% per room (capped), so depth pays disproportionately
 const roomCreditBonus=room=>Math.min(8,Math.pow(1.045,Math.max(0,room-1)));
-const runReward=()=>Math.max(3,Math.round((state.room*6*roomCreditBonus(state.room)+state.kills*.3)*creditRate(state.difficulty)));
+// nothing banks until you are past room 5, so bailing out early cannot be farmed
+const CREDIT_MIN_ROOM=6;
+const runReward=()=>state.room<CREDIT_MIN_ROOM?0:Math.max(1,Math.round((state.room*6*roomCreditBonus(state.room)+state.kills*.3)*creditRate(state.difficulty)));
 // the footer tracks the best room ever reached, overtaken live by the current run
 function recordRoom(room){
   if(room<=highscore)return;
@@ -677,8 +679,8 @@ function loadoutMarkup(){
     +'<div class="loadout">'+weapons+'</div>'
     +(extras?'<div class="lo-extras"><span class="lo-title">SYSTEMS &amp; RELICS</span><ul class="lo-list">'+extras+'</ul></div>':'')
     +(confirmingEnd
-      ? '<div class="reset-row confirming"><span>End the run here and bank '+runReward()+' credits? Your progress in this room is lost.</span><button id="endNo">KEEP PLAYING</button><button id="endYes" class="danger">END RUN</button></div>'
-      : '<div class="reset-row"><span>ENDING NOW BANKS <b>'+runReward()+'</b> CREDITS</span><button id="endRun">END RUN</button></div>')
+      ? '<div class="reset-row confirming"><span>'+(runReward()?'End the run here and bank '+runReward()+' credits?':'End the run here? You are on room '+state.room+', so nothing banks.')+' Your progress in this room is lost.</span><button id="endNo">KEEP PLAYING</button><button id="endYes" class="danger">END RUN</button></div>'
+      : '<div class="reset-row"><span>'+(runReward()?'ENDING NOW BANKS <b>'+runReward()+'</b> CREDITS':'NO CREDITS UNTIL ROOM <b>'+CREDIT_MIN_ROOM+'</b> &mdash; YOU ARE ON <b>'+state.room+'</b>')+'</span><button id="endRun">END RUN</button></div>')
     +'<button class="continue" id="resume">RESUME</button></div>';
 }
 // pausing is allowed at the portal (the natural moment to review a build), but not
@@ -709,7 +711,7 @@ function gameOver(){
   show('<div class="modal"><div class="eyebrow">SIGNAL LOST</div><h2>Run terminated</h2>'
     +'<p>Room '+state.room+' &bull; '+state.kills+' hostiles cleared &bull; flying '+c.name+'</p>'
     +'<div class="payout"><span>CREDITS EARNED <b>+'+earned+'</b> <em>&times;'+creditRate(state.difficulty)+' '+difficulties[state.difficulty].label+'</em></span><span>BALANCE <b>'+points+'</b></span><span>BEST ROOM <b>'+highscore+'</b></span></div>'
-    +(newlyAffordable.length?'<p class="payout-note">You can now afford '+newlyAffordable.map(id=>characters[id].name).join(', ')+'.</p>':'')
+    +(earned?(newlyAffordable.length?'<p class="payout-note">You can now afford '+newlyAffordable.map(id=>characters[id].name).join(', ')+'.</p>':''):'<p class="payout-note warn">Runs only start paying once you get past room '+(CREDIT_MIN_ROOM-1)+'.</p>')
     +'<button class="continue" id="restart">REBOOT RUN</button>'
     +'<button class="continue ghost" id="toRoster">HANGAR</button>'
     +'<button class="continue ghost" id="toStart">MAIN MENU</button>'

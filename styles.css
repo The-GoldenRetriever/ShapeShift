@@ -125,3 +125,4 @@
 .how-card canvas{display:block;width:100%;height:auto;border-radius:3px;background:#0a1120}
 .how-card b{display:block;margin:11px 0 5px;font-size:12px;letter-spacing:.07em;color:#dbe7fc}
 .how-card p{margin:0;font-size:11px;line-height:1.5;color:#8b9ab4}
+.payout-note.warn{color:#ffab7a}
