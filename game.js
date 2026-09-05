@@ -129,7 +129,7 @@ function update(dt) {
     }else if(state.victorySequence==='fade-out'){
       state.playerAlpha=Math.pow(state.victoryTimer, 2);
       state.screenAlpha=1-state.playerAlpha;
-      if(state.victoryTimer<=0){state.victorySequence='lightspeed';state.victoryTimer=3.0;}
+      if(state.victoryTimer<=0){state.victorySequence='lightspeed';state.victoryTimer=2.0;}
     }else if(state.victorySequence==='lightspeed'){
       state.screenAlpha=1;
       if(state.victoryTimer<=0){state.victorySequence='fade-in';state.victoryTimer=0.6;}
@@ -215,7 +215,7 @@ function updateEnemyBullets(dt) {
   enemyBullets=enemyBullets.filter(b=>b.life>0&&b.x>0&&b.x<W&&b.y>0&&b.y<H);
 }
 function updateStars(dt) {
-  for(const s of stars){s.spin+=dt*5;const d=dist(s,player);if(d<210){s.x+=(player.x-s.x)*dt*7;s.y+=(player.y-s.y)*dt*7;}if(d<28){state.xp+=s.value;s.dead=true;burst(s.x,s.y,'#ffe17a',8,90);}}
+  for(const s of stars){s.spin+=dt*5;const d=dist(s,player);if(d<210){s.x+=(player.x-s.x)*dt*12;s.y+=(player.y-s.y)*dt*12;}if(d<28){state.xp+=s.value;s.dead=true;burst(s.x,s.y,'#ffe17a',8,90);}}
   stars=stars.filter(s=>!s.dead);if(state.xp>=state.need) levelUp();
 }
 function xpValue(spec){const difficultyBonus=state.difficulty==='hard'?1.1:state.difficulty==='easy'?.95:1;const healthBonus=1+Math.max(0,spec.hp-1)*.03;const speedBonus=spec.speed>=60?1.08:1;return Math.max(1,Math.round(spec.xp*healthBonus*speedBonus*difficultyBonus));}
@@ -352,7 +352,7 @@ function drawVictorySequence(){
     }
     ctx.restore();
     ctx.save();
-    ctx.fillStyle=`rgba(0, 80, 255, ${progress*0.6})`;
+    ctx.fillStyle=`rgba(0, 0, 0, ${progress*0.6})`;
     ctx.fillRect(0,0,W,H);
     ctx.restore();
   }
