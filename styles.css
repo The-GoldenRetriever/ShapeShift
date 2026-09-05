@@ -55,3 +55,17 @@
   .game-wrap{width:100%;margin-top:10px}
   .hint{display:none}
 }
+.dash-hud.boosted span{color:var(--cyan)}
+.dash-hud.boosted small{border-color:#3d6f86;color:#9fe6f7}
+
+/* saved-data row on the difficulty screen */
+.reset-row{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;margin-top:22px;padding-top:16px;border-top:1px solid var(--line);font:10px 'DM Mono',monospace;color:#6d7c96;letter-spacing:.13em}
+.reset-row b{color:var(--cyan);font-weight:400}
+.reset-row i{font-style:normal;color:#33445d;margin:0 3px}
+.reset-row button{background:none;border:1px solid #34455f;color:#8798b3;padding:6px 13px;border-radius:3px;font:10px 'DM Mono',monospace;letter-spacing:.13em}
+.reset-row button:hover{border-color:#4a6b8d;color:#cfe0f5}
+.reset-row button.danger{border-color:#7a2a41;background:#2a1119;color:#ff9bb4}
+.reset-row button.danger:hover{border-color:var(--pink);color:#ffd3de}
+.reset-row.confirming{color:#e79bb0;letter-spacing:.06em}
+.continue.ghost{background:none;border-color:#2c3b52;color:#8798b3;margin-top:9px}
+.continue.ghost:hover{border-color:#3f5570;color:#cfe0f5}

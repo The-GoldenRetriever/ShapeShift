@@ -3,7 +3,7 @@ const ctx = canvas.getContext('2d');
 const W = 1440, H = 900;   // arena is 1.2x the original 1200x750 (same 1.6 aspect)
 const MOVE = 1.15;         // how much of that growth travel speeds take on
 const $ = id => document.querySelector(id);
-const ui = { hp: $('#healthFill'), hpText: $('#healthText'), xp: $('#xpFill'), xpText: $('#xpText'), level: $('#levelText'), weapons: $('#weaponList'), room: $('#waveNumber'), roomState: $('#waveState'), kills: $('#killCount'), timer: $('#timer'), overlay: $('#overlay') };
+const ui = { hp: $('#healthFill'), hpText: $('#healthText'), xp: $('#xpFill'), xpText: $('#xpText'), level: $('#levelText'), weapons: $('#weaponList'), room: $('#waveNumber'), roomState: $('#waveState'), kills: $('#killCount'), timer: $('#timer'), best: $('#bestWave'), overlay: $('#overlay') };
 const keys = new Set();
 const types = {
   square: { hp: 3, speed: 42, r: 16, color: '#ff6387', xp: 8, sides: 4 },
@@ -17,7 +17,14 @@ const types = {
   boss: { hp: 360, speed: 27, r: 52, color: '#ff4f9a', xp: 120, sides: 8 }
 };
 let player, enemies, arrows, enemyBullets, stars, particles, blasts, echoShots, damageNumbers, delayedBlasts, state;
-let highscore = localStorage.getItem('shapeshift_best_room') || 0;
+let highscore = Math.max(1, parseInt(localStorage.getItem('shapeshift_best_room'), 10) || 0);
+// the footer tracks the best room ever reached, overtaken live by the current run
+function recordRoom(room){
+  if(room<=highscore)return;
+  highscore=room;
+  localStorage.setItem('shapeshift_best_room',highscore);
+  paintBest();
+}
 const difficulties = { easy: { label: 'EASY', hp: .86, speed: .88, note: 'Relaxed enemy stats' }, medium: { label: 'MEDIUM', hp: 1, speed: 1, note: 'Standard enemy stats' }, hard: { label: 'HARD', hp: 1.28, speed: 1.2, note: 'Fast, reinforced enemies' }, impossible: { label: 'IMPOSSIBLE', hp: 3, speed: 1.8, note: 'Absolute carnage. Good luck.' } };
 
 function resize() {
@@ -34,7 +41,7 @@ addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 function reset(difficulty = 'medium') {
   player = { x: W / 2, y: H / 2, r: 16, hp: 100, maxHp: 100, speed: 288, regen: 3, hurtAt: -10, aim: 0, vx: 0, vy: 0 };
   enemies = []; arrows = []; enemyBullets = []; stars = []; particles = []; blasts = []; delayedBlasts = []; echoShots = []; damageNumbers = [];
-  state = { difficulty, last: performance.now(), time: 0, room: 1, level: 1, xp: 0, need: 60, kills: 0, left: 0, spawnIn: 0, active: true, paused: false, upgradeOpen: false, intermission: false, transitioning: false, roomTransition: 0, exit: null, relicRooms: {}, globals: {}, relicsTaken: [], history: [], echo: null, cloakTime: 0, cloakCooldown: 0, bowIn: 0, laserIn: 0, bombIn: 0, dashCooldown: 0, dashTime: 0, dashX: 0, dashY: 0, lastMoveX: 1, lastMoveY: 0, shake: 0, playerAlpha: 1, screenAlpha: 0, cameraZoom: 1, zoomCenterX: W/2, zoomCenterY: H/2, victoryPortal: null, victorySequence: null, victoryTimer: 0, roomBanner: null, cameraRot: 0, flash: 0, warp: null, suckR: 0, suckA: 0, suckDir: 1, portalCharge: 0, hurtFlash: 0, weapons: { bow: { name: 'LONGBOW', color: '#55e6ff', damage: 2, rate: 1.3, level: 0, upgrades: 0, taken: [], ultimate: false } } };
+  state = { difficulty, last: performance.now(), time: 0, room: 1, level: 1, xp: 0, need: 60, kills: 0, left: 0, spawnIn: 0, active: true, paused: false, upgradeOpen: false, intermission: false, transitioning: false, roomTransition: 0, exit: null, relicRooms: {}, globals: {}, relicsTaken: [], history: [], echo: null, cloakTime: 0, cloakCooldown: 0, bowIn: 0, laserIn: 0, bombIn: 0, dashCooldown: 0, dashTime: 0, dashX: 0, dashY: 0, dashPower: 1, lastMoveX: 1, lastMoveY: 0, shake: 0, playerAlpha: 1, screenAlpha: 0, cameraZoom: 1, zoomCenterX: W/2, zoomCenterY: H/2, victoryPortal: null, victorySequence: null, victoryTimer: 0, roomBanner: null, cameraRot: 0, flash: 0, warp: null, suckR: 0, suckA: 0, suckDir: 1, portalCharge: 0, hurtFlash: 0, weapons: { bow: { name: 'LONGBOW', color: '#55e6ff', damage: 2, rate: 1.3, level: 0, upgrades: 0, taken: [], ultimate: false } } };
   beginRoom(); hide();
 }
 const rand = (a,b) => a + Math.random() * (b-a);
@@ -72,6 +79,7 @@ function beginRoom() {
   if(state.room===10) spawnBoss();
   for(let i=0;i<Math.min(8,state.left);i++){spawn();state.left--;}
   ui.room.textContent=state.room; ui.roomState.textContent=state.room===10?'BOSS CHAMBER':'ROOM HOSTILES INBOUND';
+  recordRoom(state.room);
   state.roomBanner={room:state.room,life:BANNER_TIME};
 }
 function spawnBoss(){const spec=types.boss,difficulty=difficulties[state.difficulty],hp=Math.ceil(spec.hp*difficulty.hp);enemies.push({type:'boss',x:W/2,y:150,hp,maxHp:hp,r:spec.r,shoot:1.1,phase:0,flash:0,boss:true,rot:0,rotSpeed:.45,born:state.time,numIn:0});}
@@ -94,7 +102,8 @@ function dash(){
   let x=(keys.has('d')||keys.has('arrowright')?1:0)-(keys.has('a')||keys.has('arrowleft')?1:0);
   let y=(keys.has('s')||keys.has('arrowdown')?1:0)-(keys.has('w')||keys.has('arrowup')?1:0);
   if(!x&&!y){x=state.lastMoveX;y=state.lastMoveY;}
-  const len=Math.hypot(x,y)||1;state.dashX=x/len;state.dashY=y/len;state.dashTime=.22;state.dashCooldown=3;shake(4);burst(player.x,player.y,'#55e6ff',24,220);
+  const len=Math.hypot(x,y)||1;state.dashX=x/len;state.dashY=y/len;state.dashTime=.22;state.dashCooldown=3;shake(4);
+  burst(player.x,player.y,'#55e6ff',Math.round(24*(state.dashPower||1)),220*(state.dashPower||1));
 }
 function update(dt) {
   state.time+=dt;
@@ -222,8 +231,9 @@ function update(dt) {
   if(mx||my){state.lastMoveX=mx/ml;state.lastMoveY=my/ml;}
   if(state.dashTime>0){
     state.dashTime=Math.max(0,state.dashTime-dt);
-    player.x=clamp(player.x+state.dashX*1380*dt,45,W-45);
-    player.y=clamp(player.y+state.dashY*1380*dt,65,H-45);
+    const ds=1380*(state.dashPower||1);
+    player.x=clamp(player.x+state.dashX*ds*dt,45,W-45);
+    player.y=clamp(player.y+state.dashY*ds*dt,65,H-45);
     burst(player.x-state.dashX*10,player.y-state.dashY*10,'#55e6ff',2,90);
   }else{
     const targetVx=(mx/ml)*player.speed,targetVy=(my/ml)*player.speed;
@@ -456,6 +466,7 @@ function levelUp(){
   if(state.paused||state.upgradeOpen)return;
   state.xp-=state.need;state.need=Math.floor(state.need*1.25);state.level++;state.paused=true;state.upgradeOpen=true;
   const weaponChoices=availableWeaponChoices(),globals=[{id:'health',kind:'global',name:'REINFORCED HULL',desc:'Maximum health +25 and fully repairs.'},{id:'speed',kind:'global',name:'KINETIC THRUSTERS',desc:'Movement speed +18%.'},{id:'regen',kind:'global',name:'NANITE REPAIR',desc:'Health regeneration +2 per second.'}];
+  if(!state.globals.dash)globals.push({id:'dash',kind:'global',name:'SLIPSTREAM COILS',desc:'Dash carries you 60% further. Offered once.'});
   // a ready ultimate always gets a slot, but never crowds out the whole draw
   const ults=shuffle(weaponChoices.filter(u=>u.kind==='ultimate')).slice(0,2);
   const rest=shuffle(weaponChoices.filter(u=>u.kind!=='ultimate').concat(globals));
@@ -466,11 +477,13 @@ function levelUp(){
 function upgrade(id){
   if(!state.upgradeOpen)return;
   state.upgradeOpen=false;
-  if(['health','speed','regen'].includes(id)){
+  if(['health','speed','regen','dash'].includes(id)){
+    if(id==='dash'&&state.globals.dash){state.paused=false;hide();return;} // one-time only
     state.globals[id]=(state.globals[id]||0)+1;
     if(id==='health'){player.maxHp+=25;player.hp=player.maxHp;}
     if(id==='speed')player.speed*=1.18;
     if(id==='regen')player.regen+=2;
+    if(id==='dash'){state.dashPower=1.6;state.dashCooldown=0;burst(player.x,player.y,'#55e6ff',34,300,{size:3,drag:2.6});}
   }
   else if(weaponData[id]){const d=weaponData[id];state.weapons[id]={name:d[0],color:d[1],damage:d[2],rate:d[3],level:0,upgrades:0,taken:[],ultimate:false};}
   else if(id.endsWith('-ultimate')){
@@ -487,7 +500,7 @@ function upgrade(id){
 }
 function applyWeaponUpgrade(weapon,id){const w=state.weapons[weapon];if(weapon==='bow'){if(id==='bow-split')w.shots=(w.shots||1)+1;if(id==='bow-pierce')w.pierce=(w.pierce||0)+1;if(id==='bow-heavy')w.damage+=2;if(id==='bow-draw')w.rate*=1.35;if(id==='bow-seeker'){w.projectileSpeed=(w.projectileSpeed||540)*1.4;w.homing=true;}}if(weapon==='laser'){if(id==='laser-focus')w.damage+=.5;if(id==='laser-pulse')w.rate*=1.35;if(id==='laser-reach')w.range=(w.range||505)+310;if(id==='laser-scorch')w.linger=1.2;if(id==='laser-prism')w.split=true;}if(weapon==='bomb'){if(id==='bomb-radius')w.radius=(w.radius||115)+36;if(id==='bomb-cluster')w.double=true;if(id==='bomb-fuse')w.rate*=1.35;if(id==='bomb-impact')w.damage+=2;if(id==='bomb-pull')w.pull=true;}if(weapon==='sword'){if(id==='sword-reach')w.reach=(w.reach||68)+22;if(id==='sword-spin')w.spin=(w.spin||4)*1.5;if(id==='sword-span')w.reach=(w.reach||68)*1.35;if(id==='sword-sharp')w.damage+=2.5;if(id==='sword-guard')w.guard=true;}
 }
-const globalInfo={health:['REINFORCED HULL','Maximum health +25 each'],speed:['KINETIC THRUSTERS','Movement speed +18% each'],regen:['NANITE REPAIR','Health regeneration +2/s each']};
+const globalInfo={health:['REINFORCED HULL','Maximum health +25 each'],speed:['KINETIC THRUSTERS','Movement speed +18% each'],regen:['NANITE REPAIR','Health regeneration +2/s each'],dash:['SLIPSTREAM COILS','Dash carries you 60% further']};
 const relicInfo={echo:['ECHO PHANTOM','A ghost mirrors your movement and fires with you.'],cloak:['PHASE CLOAK','Press E to phase out for 3 seconds.'],overdrive:['CORE OVERDRIVE','All weapons fire 25% faster.']};
 function loadoutMarkup(){
   const weapons=Object.keys(weaponUpgrades).map(id=>{
@@ -516,13 +529,13 @@ function loadoutMarkup(){
 }
 function pause(){if(!state||state.intermission)return;state.paused=!state.paused;if(state.paused){show(loadoutMarkup());$('#resume').onclick=pause;}else hide();}
 function gameOver(){
-  if(state.room > highscore) {
-    highscore = state.room;
-    localStorage.setItem('shapeshift_best_room', highscore);
-  }
-  state.paused=true;show('<div class="modal"><div class="eyebrow">SIGNAL LOST</div><h2>Run terminated</h2><p>Room '+state.room+' • '+state.kills+' hostiles cleared</p><p style="font-size:0.9em; opacity:0.7; margin-bottom:1em;">Best Room: '+highscore+'</p><button class="continue" id="restart">REBOOT RUN</button></div>');$('#restart').onclick=()=>reset(state.difficulty);}
+  recordRoom(state.room);
+  state.paused=true;show('<div class="modal"><div class="eyebrow">SIGNAL LOST</div><h2>Run terminated</h2><p>Room '+state.room+' • '+state.kills+' hostiles cleared</p><p style="font-size:0.9em; opacity:0.7; margin-bottom:1em;">Best Room: '+highscore+'</p><button class="continue" id="restart">REBOOT RUN</button><button class="continue ghost" id="toStart">CHANGE DIFFICULTY</button></div>');
+  $('#restart').onclick=()=>reset(state.difficulty);
+  $('#toStart').onclick=()=>{confirmingReset=false;showStart();};
+}
 function show(markup){ui.overlay.innerHTML=markup;ui.overlay.classList.remove('hidden');}function hide(){ui.overlay.classList.add('hidden');ui.overlay.innerHTML='';}
-function hud(){ui.hp.style.width=player.hp/player.maxHp*100+'%';ui.hpText.textContent=Math.ceil(player.hp)+' / '+player.maxHp;ui.xp.style.width=Math.min(100,state.xp/state.need*100)+'%';ui.xpText.textContent=Math.floor(state.xp)+' / '+state.need+' XP';ui.level.textContent='LV '+state.level;ui.kills.textContent=state.kills;ui.timer.textContent=new Date(state.time*1000).toISOString().slice(14,19);ui.weapons.innerHTML=Object.values(state.weapons).map(w=>'<span class="weapon-item'+(w.ultimate?' ult':'')+'"><i class="weapon-dot" style="background:'+w.color+'"></i>'+w.name+' <small>'+(w.ultimate?'MAX':'★'+w.taken.length+(w.taken.length>=5?' ▲':''))+'</small></span>').join('');const dash=document.querySelector('.dash-hud'),text=document.querySelector('#dashText');if(state.dashTime>0){text.textContent='DASHING';dash.classList.remove('cooldown');}else if(state.dashCooldown>0){text.textContent=state.dashCooldown.toFixed(1)+'s';dash.classList.add('cooldown');}else{text.textContent='READY';dash.classList.remove('cooldown');}}
+function hud(){ui.hp.style.width=player.hp/player.maxHp*100+'%';ui.hpText.textContent=Math.ceil(player.hp)+' / '+player.maxHp;ui.xp.style.width=Math.min(100,state.xp/state.need*100)+'%';ui.xpText.textContent=Math.floor(state.xp)+' / '+state.need+' XP';ui.level.textContent='LV '+state.level;ui.kills.textContent=state.kills;paintBest();ui.timer.textContent=new Date(state.time*1000).toISOString().slice(14,19);ui.weapons.innerHTML=Object.values(state.weapons).map(w=>'<span class="weapon-item'+(w.ultimate?' ult':'')+'"><i class="weapon-dot" style="background:'+w.color+'"></i>'+w.name+' <small>'+(w.ultimate?'MAX':'★'+w.taken.length+(w.taken.length>=5?' ▲':''))+'</small></span>').join('');const dash=document.querySelector('.dash-hud'),text=document.querySelector('#dashText');dash.classList.toggle('boosted',!!state.globals.dash);if(state.dashTime>0){text.textContent='DASHING';dash.classList.remove('cooldown');}else if(state.dashCooldown>0){text.textContent=state.dashCooldown.toFixed(1)+'s';dash.classList.add('cooldown');}else{text.textContent='READY';dash.classList.remove('cooldown');}}
 function poly(x,y,r,n,rot){ctx.beginPath();for(let i=0;i<n;i++){const a=rot+i*Math.PI*2/n,px=x+Math.cos(a)*r,py=y+Math.sin(a)*r;i?ctx.lineTo(px,py):ctx.moveTo(px,py);}ctx.closePath();}
 function updateDamageNumbers(dt){for(const d of damageNumbers){d.y-=40*dt;d.life-=dt;}damageNumbers=damageNumbers.filter(d=>d.life>0);}
 function drawDamageNumbers(){
@@ -1069,10 +1082,26 @@ function ultimateEffects(dt){
   }
 }
 function frame(now){if(!state){ctx.clearRect(0,0,W,H);ctx.fillStyle='#090f1b';ctx.fillRect(0,0,W,H);requestAnimationFrame(frame);return;}const dt=Math.min(.033,(now-state.last)/1000);state.last=now;if(!state.paused){update(dt);ultimateEffects(dt);}draw();requestAnimationFrame(frame);}
+let confirmingReset=false;
+// the footer reads from the same source whether or not a run is in progress
+function paintBest(){ui.best.textContent=highscore;}
+function resetSavedData(){
+  localStorage.removeItem('shapeshift_best_room');
+  localStorage.removeItem('shapeshift_hard_beaten');
+  highscore=1;
+  paintBest();
+}
 function showStart(){
   const hardBeaten = localStorage.getItem('shapeshift_hard_beaten') === 'true';
-  show('<div class="modal"><div class="eyebrow">SHAPESHIFT // NEON SURVIVORS</div><h2>Choose your difficulty</h2><p>Move with WASD or arrow keys. Your bow fires automatically at the nearest enemy.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>Enemies have reduced health and move slower.</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Standard enemy health and speed.</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>Enemies are faster and have 28% more health.</p><button data-difficulty="hard">START HARD</button></div>' + (hardBeaten ? '<div class="card" style="border-color:#ff0000; box-shadow: 0 0 15px #ff000044;"><span class="card-key" style="color:#ff4f9a">04 // ELITE</span><h3 style="color:#ff4f9a">IMPOSSIBLE</h3><p>Absolute carnage. Good luck.</p><button data-difficulty="impossible" style="background:#ff4f9a">START IMPOSSIBLE</button></div>' : '') + '</div></div></div>');
-  document.querySelectorAll('[data-difficulty]').forEach(b=>b.onclick=()=>reset(b.dataset.difficulty));
+  const resetRow = confirmingReset
+    ? '<div class="reset-row confirming"><span>Erase your best room'+(hardBeaten?' and re-lock IMPOSSIBLE':'')+'? This cannot be undone.</span><button id="resetNo">CANCEL</button><button id="resetYes" class="danger">ERASE</button></div>'
+    : '<div class="reset-row"><span>BEST ROOM <b>'+highscore+'</b>'+(hardBeaten?' <i>&bull;</i> IMPOSSIBLE UNLOCKED':'')+'</span><button id="resetData">RESET DATA</button></div>';
+  show('<div class="modal"><div class="eyebrow">SHAPESHIFT // NEON SURVIVORS</div><h2>Choose your difficulty</h2><p>Move with WASD or arrow keys. Your bow fires automatically at the nearest enemy.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>Enemies have reduced health and move slower.</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Standard enemy health and speed.</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>Enemies are faster and have 28% more health.</p><button data-difficulty="hard">START HARD</button></div>' + (hardBeaten ? '<div class="card" style="border-color:#ff0000; box-shadow: 0 0 15px #ff000044;"><span class="card-key" style="color:#ff4f9a">04 // ELITE</span><h3 style="color:#ff4f9a">IMPOSSIBLE</h3><p>Absolute carnage. Good luck.</p><button data-difficulty="impossible" style="background:#ff4f9a">START IMPOSSIBLE</button></div>' : '') + '</div>' + resetRow + '</div>');
+  document.querySelectorAll('[data-difficulty]').forEach(b=>b.onclick=()=>{confirmingReset=false;reset(b.dataset.difficulty);});
+  const ask=$('#resetData'),no=$('#resetNo'),yes=$('#resetYes');
+  if(ask)ask.onclick=()=>{confirmingReset=true;showStart();};
+  if(no)no.onclick=()=>{confirmingReset=false;showStart();};
+  if(yes)yes.onclick=()=>{resetSavedData();confirmingReset=false;showStart();};
 }
 $('#pauseBtn').onclick=pause;
-showStart();requestAnimationFrame(frame);
+paintBest();showStart();requestAnimationFrame(frame);
