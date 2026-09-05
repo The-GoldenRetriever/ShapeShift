@@ -1,6 +1,7 @@
 const canvas = document.querySelector('#game');
 const ctx = canvas.getContext('2d');
-const W = 1200, H = 750;
+const W = 1440, H = 900;   // arena is 1.2x the original 1200x750 (same 1.6 aspect)
+const MOVE = 1.15;         // how much of that growth travel speeds take on
 const $ = id => document.querySelector(id);
 const ui = { hp: $('#healthFill'), hpText: $('#healthText'), xp: $('#xpFill'), xpText: $('#xpText'), level: $('#levelText'), weapons: $('#weaponList'), room: $('#waveNumber'), roomState: $('#waveState'), kills: $('#killCount'), timer: $('#timer'), overlay: $('#overlay') };
 const keys = new Set();
@@ -20,7 +21,9 @@ let highscore = localStorage.getItem('shapeshift_best_room') || 0;
 const difficulties = { easy: { label: 'EASY', hp: .86, speed: .88, note: 'Relaxed enemy stats' }, medium: { label: 'MEDIUM', hp: 1, speed: 1, note: 'Standard enemy stats' }, hard: { label: 'HARD', hp: 1.28, speed: 1.2, note: 'Fast, reinforced enemies' }, impossible: { label: 'IMPOSSIBLE', hp: 3, speed: 1.8, note: 'Absolute carnage. Good luck.' } };
 
 function resize() {
-  const dpr = Math.min(devicePixelRatio || 1, 2);
+  // capped at 1.75 rather than 2: the arena grew 44%, this keeps the backing
+  // store near its old pixel count so the additive/glow passes stay cheap
+  const dpr = Math.min(devicePixelRatio || 1, 1.75);
   canvas.width = W * dpr; canvas.height = H * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
@@ -29,7 +32,7 @@ addEventListener('keydown', e => { const k = e.key.toLowerCase(); if (['arrowup'
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 
 function reset(difficulty = 'medium') {
-  player = { x: W / 2, y: H / 2, r: 16, hp: 100, maxHp: 100, speed: 250, regen: 3, hurtAt: -10, aim: 0, vx: 0, vy: 0 };
+  player = { x: W / 2, y: H / 2, r: 16, hp: 100, maxHp: 100, speed: 288, regen: 3, hurtAt: -10, aim: 0, vx: 0, vy: 0 };
   enemies = []; arrows = []; enemyBullets = []; stars = []; particles = []; blasts = []; delayedBlasts = []; echoShots = []; damageNumbers = [];
   state = { difficulty, last: performance.now(), time: 0, room: 1, level: 1, xp: 0, need: 60, kills: 0, left: 0, spawnIn: 0, active: true, paused: false, upgradeOpen: false, intermission: false, transitioning: false, roomTransition: 0, exit: null, relicRooms: {}, globals: {}, relicsTaken: [], history: [], echo: null, cloakTime: 0, cloakCooldown: 0, bowIn: 0, laserIn: 0, bombIn: 0, dashCooldown: 0, dashTime: 0, dashX: 0, dashY: 0, lastMoveX: 1, lastMoveY: 0, shake: 0, playerAlpha: 1, screenAlpha: 0, cameraZoom: 1, zoomCenterX: W/2, zoomCenterY: H/2, victoryPortal: null, victorySequence: null, victoryTimer: 0, roomBanner: null, cameraRot: 0, flash: 0, warp: null, suckR: 0, suckA: 0, suckDir: 1, portalCharge: 0, hurtFlash: 0, weapons: { bow: { name: 'LONGBOW', color: '#55e6ff', damage: 2, rate: 1.3, level: 0, upgrades: 0, taken: [], ultimate: false } } };
   beginRoom(); hide();
@@ -64,13 +67,14 @@ function spawn() {
   enemies.push({type:name,x:p.x,y:p.y,hp,maxHp:hp,r:spec.r,shoot:rand(1,3),phase:Math.random()*7,flash:0,rot:Math.random()*7,rotSpeed:rand(-1.1,1.1),born:state.time,numIn:0});
 }
 function beginRoom() {
-  state.active=true; state.intermission=false; state.exit=null; state.left=state.room===10?0:9+state.room*3; state.spawnIn=.55;
+  // the arena is ~44% larger, so counts rise a little to keep the floor from feeling empty
+  state.active=true; state.intermission=false; state.exit=null; state.left=state.room===10?0:11+state.room*3; state.spawnIn=.55;
   if(state.room===10) spawnBoss();
-  for(let i=0;i<Math.min(6,state.left);i++){spawn();state.left--;}
+  for(let i=0;i<Math.min(8,state.left);i++){spawn();state.left--;}
   ui.room.textContent=state.room; ui.roomState.textContent=state.room===10?'BOSS CHAMBER':'ROOM HOSTILES INBOUND';
   state.roomBanner={room:state.room,life:BANNER_TIME};
 }
-function spawnBoss(){const spec=types.boss,difficulty=difficulties[state.difficulty],hp=Math.ceil(spec.hp*difficulty.hp);enemies.push({type:'boss',x:W/2,y:130,hp,maxHp:hp,r:spec.r,shoot:1.1,phase:0,flash:0,boss:true,rot:0,rotSpeed:.45,born:state.time,numIn:0});}
+function spawnBoss(){const spec=types.boss,difficulty=difficulties[state.difficulty],hp=Math.ceil(spec.hp*difficulty.hp);enemies.push({type:'boss',x:W/2,y:150,hp,maxHp:hp,r:spec.r,shoot:1.1,phase:0,flash:0,boss:true,rot:0,rotSpeed:.45,born:state.time,numIn:0});}
 function nearest() {
   let best=null, bestD=Infinity;
   for(const e of enemies){const d=dist(player,e);if(d<bestD){best=e;bestD=d;}}
@@ -80,7 +84,7 @@ function fire() {
   const target=nearest(); if(!target)return;
   player.aim=ang(player,target); const w=state.weapons.bow;
   const shotCount=(w.shots||1)+(w.ultimate?2:0), offsets=shotCount>1?Array.from({length:shotCount},(_,i)=>(i-(shotCount-1)/2)*.15):[0];
-  for(const o of offsets){const a=player.aim+o;arrows.push({x:player.x+Math.cos(a)*27,y:player.y+Math.sin(a)*27,vx:Math.cos(a)*(w.projectileSpeed||540),vy:Math.sin(a)*(w.projectileSpeed||540),life:1.5,damage:w.damage,pierce:(w.pierce||0)+(w.ultimate?1:0),color:w.color,homing:w.homing?1:0});}
+  for(const o of offsets){const a=player.aim+o;arrows.push({x:player.x+Math.cos(a)*27,y:player.y+Math.sin(a)*27,vx:Math.cos(a)*(w.projectileSpeed||620),vy:Math.sin(a)*(w.projectileSpeed||620),life:1.6,damage:w.damage,pierce:(w.pierce||0)+(w.ultimate?1:0),color:w.color,homing:w.homing?1:0});}
   burst(player.x+Math.cos(player.aim)*28,player.y+Math.sin(player.aim)*28,w.color,4,70,{size:2,drag:6});
 }
 function hurt(n){if(state.cloakTime>0)return;player.hp=Math.max(0,player.hp-n);player.hurtAt=state.time;player.flash=0.1;state.hurtFlash=Math.min(1,(state.hurtFlash||0)+clamp(n/45,.3,1));burst(player.x,player.y,'#ff557d',10,150,{size:2.6,drag:4,spread:player.r});shake(12);}
@@ -101,8 +105,8 @@ function update(dt) {
   if(state.victoryPortal&&!state.victorySequence){
     const p=state.victoryPortal;
     const d=dist(player,p);
-    if(d<150){
-      const pull= (150-d)/150 * 200 * dt;
+    if(d<180){
+      const pull= (180-d)/180 * 230 * dt;
       player.vx+=(p.x-player.x)/d*pull;
       player.vy+=(p.y-player.y)/d*pull;
     }
@@ -196,7 +200,7 @@ function update(dt) {
         state.zoomCenterX=W/2;state.zoomCenterY=H/2;
         state.flash=1;state.screenAlpha=0;state.warp=null;
         nextRoom();
-        blasts.push({x:W/2,y:H/2,radius:340,life:.5,maxLife:.5,color:'#eaffff'});
+        blasts.push({x:W/2,y:H/2,radius:410,life:.5,maxLife:.5,color:'#eaffff'});
         burst(W/2,H/2,'#55e6ff',34,320);
         shake(9);
       }
@@ -218,8 +222,8 @@ function update(dt) {
   if(mx||my){state.lastMoveX=mx/ml;state.lastMoveY=my/ml;}
   if(state.dashTime>0){
     state.dashTime=Math.max(0,state.dashTime-dt);
-    player.x=clamp(player.x+state.dashX*1200*dt,45,W-45);
-    player.y=clamp(player.y+state.dashY*1200*dt,65,H-45);
+    player.x=clamp(player.x+state.dashX*1380*dt,45,W-45);
+    player.y=clamp(player.y+state.dashY*1380*dt,65,H-45);
     burst(player.x-state.dashX*10,player.y-state.dashY*10,'#55e6ff',2,90);
   }else{
     const targetVx=(mx/ml)*player.speed,targetVy=(my/ml)*player.speed;
@@ -236,7 +240,7 @@ function update(dt) {
   state.history.unshift({x:player.x,y:player.y});if(state.history.length>24)state.history.pop();updateRelics(dt);
   if(state.time-player.hurtAt>2) player.hp=Math.min(player.maxHp,player.hp+player.regen*dt);
   player.flash=Math.max(0,player.flash-dt);
-  if(state.active&&state.left>0){state.spawnIn-=dt;if(state.spawnIn<=0){spawn();state.left--;state.spawnIn=Math.max(.22,.68-state.room*.02);}}
+  if(state.active&&state.left>0){state.spawnIn-=dt;if(state.spawnIn<=0){spawn();state.left--;state.spawnIn=Math.max(.2,.62-state.room*.02);}}
   state.bowIn-=dt;if(state.bowIn<=0){fire();state.bowIn=1/state.weapons.bow.rate;}
   for(const e of enemies) moveEnemy(e,dt);
   weapons(dt); updateArrows(dt); updateEchoShots(dt); updateEnemyBullets(dt); updateStars(dt); deaths(); updateParticles(dt); updateBlasts(dt); updateDelayedBlasts(dt); updateDamageNumbers(dt);
@@ -255,14 +259,16 @@ function moveEnemy(e,dt) {
       e.dashCooldown=3+rand(0,2);
     }
     if(e.dashTime>0){
-      const dashSpeed=spec.speed*5*difficulty.speed;
+      const dashSpeed=spec.speed*5*difficulty.speed*MOVE;
       e.x+=Math.cos(a)*dashSpeed*dt;e.y+=Math.sin(a)*dashSpeed*dt;
       burst(e.x,e.y,spec.color,2,100);
     }else{
-      e.x+=Math.cos(a)*spec.speed*difficulty.speed*dt;e.y+=Math.sin(a)*spec.speed*difficulty.speed*dt;
+      const s=spec.speed*difficulty.speed*MOVE;
+      e.x+=Math.cos(a)*s*dt;e.y+=Math.sin(a)*s*dt;
     }
   }else{
-    e.x+=Math.cos(a)*spec.speed*difficulty.speed*dt;e.y+=Math.sin(a)*spec.speed*difficulty.speed*dt;
+    const s=spec.speed*difficulty.speed*MOVE;
+    e.x+=Math.cos(a)*s*dt;e.y+=Math.sin(a)*s*dt;
   }
 
   e.flash=Math.max(0,e.flash-dt);
@@ -271,7 +277,7 @@ function moveEnemy(e,dt) {
   e.touch=(e.touch||0)-dt;
   if(dist(e,player)<e.r+player.r&&e.touch<=0){if(state.dashTime<=0){const baseDamage=e.boss?28:10+spec.hp*1.5+(spec.speed>=60?5:0),damage=baseDamage*(1+(state.room-1)*.025)*difficulty.speed*(state.weapons.sword?.guard?.7:1);const lethal=!e.boss&&(state.difficulty==='hard'||state.difficulty==='impossible')&&(e.type==='trap'||e.type==='pentagon');hurt(lethal?player.hp:damage);if(!e.boss){e.hp=0;spawnDamageNumber(e.x,e.y,999,'#fff');shake(4);}}e.touch=.55;burst(e.x,e.y,spec.color,10,110);}
   e.shoot-=dt;
-  if((e.type==='bowtie'||e.boss)&&e.shoot<=0){const b=ang(e,player),shots=e.boss?[-.24,-.12,0,.12,.24]:[0];for(const offset of shots)enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(b+offset)*(e.boss?245:195),vy:Math.sin(b+offset)*(e.boss?245:195),r:e.boss?7:5,life:4,damage:(e.boss?16:8+state.room*.5)*difficulty.speed});e.shoot=e.boss?1.15:rand(2,3.4);}
+  if((e.type==='bowtie'||e.boss)&&e.shoot<=0){const b=ang(e,player),shots=e.boss?[-.24,-.12,0,.12,.24]:[0];for(const offset of shots)enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(b+offset)*(e.boss?282:224),vy:Math.sin(b+offset)*(e.boss?282:224),r:e.boss?7:5,life:4,damage:(e.boss?16:8+state.room*.5)*difficulty.speed});e.shoot=e.boss?1.15:rand(2,3.4);}
 }
 function weapons(dt) {
   if(state.weapons.laser){
@@ -281,7 +287,7 @@ function weapons(dt) {
     state.laserIn-=dt;
     if(state.laserIn<=0){
       const e=nearest();
-      if(e&&dist(e,player)<=(w.range||420)){
+      if(e&&dist(e,player)<=(w.range||505)){
         hitLaser(w,e);
         w.ticks=(w.ticks||0)+1;
         if(w.split&&w.ticks%3===0){const second=enemies.filter(x=>x!==e).sort((a,b)=>dist(a,player)-dist(b,player))[0];if(second)hitLaser(w,second,true);}
@@ -289,7 +295,7 @@ function weapons(dt) {
       state.laserIn=1/w.rate;
     }
   }
-  if(state.weapons.bomb){state.bombIn-=dt;if(state.bombIn<=0){const w=state.weapons.bomb,t=nearest();if(t)detonate(w,t.x,t.y,w.radius||96,w.damage,w.double?{timer:.75,damage:w.damage*.55}:null);state.bombIn=1/w.rate;}}
+  if(state.weapons.bomb){state.bombIn-=dt;if(state.bombIn<=0){const w=state.weapons.bomb,t=nearest();if(t)detonate(w,t.x,t.y,w.radius||115,w.damage,w.double?{timer:.75,damage:w.damage*.55}:null);state.bombIn=1/w.rate;}}
   if(state.weapons.sword){
     const w=state.weapons.sword,reach=w.reach||68,hilt=16,width=w.width||11;
     for(const a of bladeAngles(w)){
@@ -329,7 +335,7 @@ function detonate(w,x,y,radius,damage,followUp){
 function updateArrows(dt) {
   for(const a of arrows){
     if(a.homing){
-      const t=enemies.reduce((best,e)=>{const d=dist(e,a);return d<300&&(!best||d<best.d)?{e,d}:best;},null);
+      const t=enemies.reduce((best,e)=>{const d=dist(e,a);return d<360&&(!best||d<best.d)?{e,d}:best;},null);
       if(t){
         const want=ang(a,t.e),speed=Math.hypot(a.vx,a.vy);
         let cur=Math.atan2(a.vy,a.vx),diff=want-cur;
@@ -355,7 +361,7 @@ function updateEnemyBullets(dt) {
   enemyBullets=enemyBullets.filter(b=>b.life>0&&b.x>0&&b.x<W&&b.y>0&&b.y<H);
 }
 function updateStars(dt) {
-  for(const s of stars){s.spin+=dt*5;const d=dist(s,player);if(d<210){s.x+=(player.x-s.x)*dt*12;s.y+=(player.y-s.y)*dt*12;}if(d<28){state.xp+=s.value;s.dead=true;burst(s.x,s.y,'#ffe17a',9,130,{size:2.2,drag:5});}}
+  for(const s of stars){s.spin+=dt*5;const d=dist(s,player);if(d<250){s.x+=(player.x-s.x)*dt*12;s.y+=(player.y-s.y)*dt*12;}if(d<32){state.xp+=s.value;s.dead=true;burst(s.x,s.y,'#ffe17a',9,130,{size:2.2,drag:5});}}
   stars=stars.filter(s=>!s.dead);if(state.xp>=state.need) levelUp();
 }
 function xpValue(spec){const difficultyBonus=state.difficulty==='hard'?1.1:state.difficulty==='easy'?.95:1;const healthBonus=1+Math.max(0,spec.hp-1)*.03;const speedBonus=spec.speed>=60?1.08:1;return Math.max(1,Math.round(spec.xp*healthBonus*speedBonus*difficultyBonus));}
@@ -383,7 +389,7 @@ function burst(x,y,color,n,speed,opts){
 function updateParticles(dt){for(const p of particles){const d=1-(p.drag||3.4)*dt;p.vx*=d;p.vy*=d;p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt;}particles=particles.filter(p=>p.life>0);}
 function updateBlasts(dt){for(const b of blasts)b.life-=dt;blasts=blasts.filter(b=>b.life>0);}
 function updateDelayedBlasts(dt){for(const b of delayedBlasts){b.timer-=dt;if(b.timer<=0){for(const e of enemies)if(dist(e,b)<b.radius){e.hp-=b.damage;e.flash=.15;spawnDamageNumber(e.x,e.y,Math.ceil(b.damage),b.color);}blasts.push({x:b.x,y:b.y,radius:b.radius,life:.4,maxLife:.4,color:b.color});burst(b.x,b.y,b.color,20,180,{size:2.8,drag:3});shake(4);b.dead=true;} }delayedBlasts=delayedBlasts.filter(b=>!b.dead);}
-function finishRoom(){if(state.exit||state.transitioning||state.victoryPortal)return;state.active=false;state.intermission=true;if(state.room%10===0&&!state.relicRooms[state.room]){showRelics();return;}state.victoryPortal={x:W/2,y:H/2,r:30};}
+function finishRoom(){if(state.exit||state.transitioning||state.victoryPortal)return;state.active=false;state.intermission=true;if(state.room%10===0&&!state.relicRooms[state.room]){showRelics();return;}state.victoryPortal={x:W/2,y:H/2,r:34};}
 function nextRoom(){
   if(state.difficulty==='hard' && state.room===10){
     localStorage.setItem('shapeshift_hard_beaten', 'true');
@@ -391,9 +397,9 @@ function nextRoom(){
   state.room++;player.x=W/2;player.y=H/2;player.vx=0;player.vy=0;state.history=[];beginRoom();
 }
 function weaponPower(){return Object.values(state.weapons).reduce((sum,w)=>sum+(w.damage||0),0);}
-function updateRelics(dt){if(state.echo){const ghost=state.history[Math.min(18,state.history.length-1)]||player;state.echo.x=ghost.x;state.echo.y=ghost.y;state.echo.fireIn-=dt;if(state.echo.fireIn<=0){const target=enemies.reduce((best,e)=>!best||dist(e,state.echo)<dist(best,state.echo)?e:best,null);if(target){const a=ang(state.echo,target);echoShots.push({x:state.echo.x,y:state.echo.y,vx:Math.cos(a)*430,vy:Math.sin(a)*430,life:1.5,damage:weaponPower()*.25});burst(state.echo.x,state.echo.y,'#a6d8ff',8,100);}state.echo.fireIn=.42;}}}
+function updateRelics(dt){if(state.echo){const ghost=state.history[Math.min(18,state.history.length-1)]||player;state.echo.x=ghost.x;state.echo.y=ghost.y;state.echo.fireIn-=dt;if(state.echo.fireIn<=0){const target=enemies.reduce((best,e)=>!best||dist(e,state.echo)<dist(best,state.echo)?e:best,null);if(target){const a=ang(state.echo,target);echoShots.push({x:state.echo.x,y:state.echo.y,vx:Math.cos(a)*495,vy:Math.sin(a)*495,life:1.5,damage:weaponPower()*.25});burst(state.echo.x,state.echo.y,'#a6d8ff',8,100);}state.echo.fireIn=.42;}}}
 function showRelics(){state.paused=true;show('<div class="modal"><div class="eyebrow">BOSS RELIC // ROOM '+state.room+'</div><h2>Choose a relic</h2><p>The exit will open after you claim one.</p><div class="cards"><div class="card"><span class="card-key">RELIC 01</span><h3>ECHO PHANTOM</h3><p>A ghost copies your movement and attacks for 25% of your combined weapon damage.</p><button data-relic="echo">CLAIM</button></div><div class="card"><span class="card-key">RELIC 02</span><h3>PHASE CLOAK</h3><p>Press E to disappear for 3 seconds. You can move freely and take no damage.</p><button data-relic="cloak">CLAIM</button></div><div class="card"><span class="card-key">RELIC 03</span><h3>CORE OVERDRIVE</h3><p>All current weapons fire 25% faster.</p><button data-relic="overdrive">CLAIM</button></div></div></div>');document.querySelectorAll('[data-relic]').forEach(b=>b.onclick=()=>claimRelic(b.dataset.relic));}
-function claimRelic(id){if(id==='echo')state.echo={x:player.x,y:player.y,fireIn:0};if(id==='cloak')state.hasCloak=true;if(id==='overdrive')Object.values(state.weapons).forEach(w=>w.rate*=1.25);state.relicsTaken.push(id);state.relicRooms[state.room]=true;state.paused=false;hide();state.victoryPortal={x:W/2,y:H/2,r:30};}
+function claimRelic(id){if(id==='echo')state.echo={x:player.x,y:player.y,fireIn:0};if(id==='cloak')state.hasCloak=true;if(id==='overdrive')Object.values(state.weapons).forEach(w=>w.rate*=1.25);state.relicsTaken.push(id);state.relicRooms[state.room]=true;state.paused=false;hide();state.victoryPortal={x:W/2,y:H/2,r:34};}
 const weaponUpgrades={
   bow:[
     ['bow-split','SPLIT-FLIGHT','Fire one additional arrow.'],
@@ -405,12 +411,12 @@ const weaponUpgrades={
   laser:[
     ['laser-focus','FOCUSED BEAM','Laser damage +0.5 per tick.'],
     ['laser-pulse','STABLE PULSE','Laser fires 35% more often.'],
-    ['laser-reach','LONG LENS','Laser targeting range +260.'],
+    ['laser-reach','LONG LENS','Laser targeting range +310.'],
     ['laser-scorch','SCORCHING TRACE','Hits burn for 1.2 seconds of extra damage.'],
     ['laser-prism','PRISM SPLIT','Every third beam tick hits a second target.']
   ],
   bomb:[
-    ['bomb-radius','WIDE RUPTURE','Blast radius +30.'],
+    ['bomb-radius','WIDE RUPTURE','Blast radius +36.'],
     ['bomb-cluster','CLUSTER CORE','A second blast follows for 55% damage.'],
     ['bomb-fuse','SHORT FUSE','Bombs trigger 35% more often.'],
     ['bomb-impact','IMPACT CHARGE','Bomb damage +2.'],
@@ -479,7 +485,7 @@ function upgrade(id){
   else {const weapon=id.split('-')[0],w=state.weapons[weapon],u=weaponUpgrades[weapon]&&weaponUpgrades[weapon].find(x=>x[0]===id);if(w&&u&&!w.taken.includes(id)){w.taken.push(id);w.upgrades++;w.level=w.upgrades;applyWeaponUpgrade(weapon,id);}}
   state.paused=false;hide();
 }
-function applyWeaponUpgrade(weapon,id){const w=state.weapons[weapon];if(weapon==='bow'){if(id==='bow-split')w.shots=(w.shots||1)+1;if(id==='bow-pierce')w.pierce=(w.pierce||0)+1;if(id==='bow-heavy')w.damage+=2;if(id==='bow-draw')w.rate*=1.35;if(id==='bow-seeker'){w.projectileSpeed=(w.projectileSpeed||540)*1.4;w.homing=true;}}if(weapon==='laser'){if(id==='laser-focus')w.damage+=.5;if(id==='laser-pulse')w.rate*=1.35;if(id==='laser-reach')w.range=(w.range||420)+260;if(id==='laser-scorch')w.linger=1.2;if(id==='laser-prism')w.split=true;}if(weapon==='bomb'){if(id==='bomb-radius')w.radius=(w.radius||96)+30;if(id==='bomb-cluster')w.double=true;if(id==='bomb-fuse')w.rate*=1.35;if(id==='bomb-impact')w.damage+=2;if(id==='bomb-pull')w.pull=true;}if(weapon==='sword'){if(id==='sword-reach')w.reach=(w.reach||68)+22;if(id==='sword-spin')w.spin=(w.spin||4)*1.5;if(id==='sword-span')w.reach=(w.reach||68)*1.35;if(id==='sword-sharp')w.damage+=2.5;if(id==='sword-guard')w.guard=true;}
+function applyWeaponUpgrade(weapon,id){const w=state.weapons[weapon];if(weapon==='bow'){if(id==='bow-split')w.shots=(w.shots||1)+1;if(id==='bow-pierce')w.pierce=(w.pierce||0)+1;if(id==='bow-heavy')w.damage+=2;if(id==='bow-draw')w.rate*=1.35;if(id==='bow-seeker'){w.projectileSpeed=(w.projectileSpeed||540)*1.4;w.homing=true;}}if(weapon==='laser'){if(id==='laser-focus')w.damage+=.5;if(id==='laser-pulse')w.rate*=1.35;if(id==='laser-reach')w.range=(w.range||505)+310;if(id==='laser-scorch')w.linger=1.2;if(id==='laser-prism')w.split=true;}if(weapon==='bomb'){if(id==='bomb-radius')w.radius=(w.radius||115)+36;if(id==='bomb-cluster')w.double=true;if(id==='bomb-fuse')w.rate*=1.35;if(id==='bomb-impact')w.damage+=2;if(id==='bomb-pull')w.pull=true;}if(weapon==='sword'){if(id==='sword-reach')w.reach=(w.reach||68)+22;if(id==='sword-spin')w.spin=(w.spin||4)*1.5;if(id==='sword-span')w.reach=(w.reach||68)*1.35;if(id==='sword-sharp')w.damage+=2.5;if(id==='sword-guard')w.guard=true;}
 }
 const globalInfo={health:['REINFORCED HULL','Maximum health +25 each'],speed:['KINETIC THRUSTERS','Movement speed +18% each'],regen:['NANITE REPAIR','Health regeneration +2/s each']};
 const relicInfo={echo:['ECHO PHANTOM','A ghost mirrors your movement and fires with you.'],cloak:['PHASE CLOAK','Press E to phase out for 3 seconds.'],overdrive:['CORE OVERDRIVE','All weapons fire 25% faster.']};
@@ -686,21 +692,21 @@ function draw(){
 }
 let bgDots=null,vignette=null;
 function drawBackground(){
-  if(!bgDots)bgDots=Array.from({length:80},()=>({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.7+.5,p:Math.random()*7,s:.4+Math.random()*1.3}));
+  if(!bgDots)bgDots=Array.from({length:112},()=>({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.7+.5,p:Math.random()*7,s:.4+Math.random()*1.3}));
   for(const d of bgDots){
     ctx.globalAlpha=.1+Math.abs(Math.sin(state.time*d.s+d.p))*.26;
     ctx.fillStyle='#8fb4e0';ctx.fillRect(d.x,d.y,d.r,d.r);
   }
   ctx.globalAlpha=1;ctx.lineWidth=1;
   ctx.strokeStyle='#131f31';ctx.beginPath();
-  for(let x=48;x<W;x+=48){ctx.moveTo(x,0);ctx.lineTo(x,H);}
-  for(let y=48;y<H;y+=48){ctx.moveTo(0,y);ctx.lineTo(W,y);}
+  for(let x=60;x<W;x+=60){ctx.moveTo(x,0);ctx.lineTo(x,H);}
+  for(let y=60;y<H;y+=60){ctx.moveTo(0,y);ctx.lineTo(W,y);}
   ctx.stroke();
   ctx.strokeStyle='#1c2e47';ctx.beginPath();
-  for(let x=192;x<W;x+=192){ctx.moveTo(x,0);ctx.lineTo(x,H);}
-  for(let y=192;y<H;y+=192){ctx.moveTo(0,y);ctx.lineTo(W,y);}
+  for(let x=240;x<W;x+=240){ctx.moveTo(x,0);ctx.lineTo(x,H);}
+  for(let y=240;y<H;y+=240){ctx.moveTo(0,y);ctx.lineTo(W,y);}
   ctx.stroke();
-  const L=20,T=32,R=W-20,B=H-26,c=28;
+  const L=20,T=32,R=W-20,B=H-26,c=34;
   ctx.strokeStyle='#2a3d59';ctx.strokeRect(L,T,R-L,B-T);
   ctx.save();
   ctx.strokeStyle='#55e6ff';ctx.lineWidth=2.5;ctx.globalAlpha=.55;
@@ -735,7 +741,7 @@ function enemyPath(e,sp){
 }
 function drawStars(){
   for(const s of stars){
-    const pulse=1+Math.sin(state.time*7+s.spin)*.13, pulled=dist(s,player)<210;
+    const pulse=1+Math.sin(state.time*7+s.spin)*.13, pulled=dist(s,player)<250;
     if(pulled){
       ctx.save();ctx.globalCompositeOperation='lighter';ctx.globalAlpha=.3;
       ctx.strokeStyle='#ffe17a';ctx.lineWidth=2;
@@ -1006,7 +1012,7 @@ function drawBlade(w,a){
   ctx.restore();
 }
 function drawLaser(w){
-  const e=nearest(), inRange=e&&dist(e,player)<=(w.range||420);
+  const e=nearest(), inRange=e&&dist(e,player)<=(w.range||505);
   ctx.save();
   ctx.globalCompositeOperation='lighter';
   ctx.lineCap='round';
@@ -1043,7 +1049,7 @@ function ultimateEffects(dt){
     w.ultimateIn=(w.ultimateIn||0)-dt;
     if(w.ultimateIn>0)continue;
     if(id==='laser'){
-      const range=w.range||420;
+      const range=w.range||505;
       const targets=enemies.filter(e=>dist(e,player)<=range).sort((a,b)=>dist(a,player)-dist(b,player)).slice(0,3);
       if(!targets.length)continue; // hold the charge until something is in range
       for(const e of targets)hitLaser(w,e,true);
@@ -1053,7 +1059,7 @@ function ultimateEffects(dt){
     if(id==='bomb'){
       const t=nearest();
       if(!t)continue; // hold the charge until there is something to hit
-      const radius=(w.radius||96)+40;
+      const radius=(w.radius||115)+48;
       detonate(w,t.x,t.y,radius,w.damage*2,null);
       blasts.push({x:t.x,y:t.y,radius:radius*1.35,life:.5,maxLife:.5,color:'#fff2d6'});
       burst(t.x,t.y,'#ffffff',18,300,{size:3,drag:2.2});
