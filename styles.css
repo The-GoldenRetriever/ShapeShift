@@ -224,3 +224,11 @@
 
 .card.card-locked{opacity:.4;border-style:dashed}
 .card.card-locked h3{color:#8ea0bd}
+
+/* hangar — airframe preview on each card */
+.pilot-art{display:flex;align-items:center;justify-content:center;height:96px;margin:-2px 0 10px;border-radius:4px;background:radial-gradient(ellipse at 50% 62%,color-mix(in srgb,var(--pilot) 16%,transparent),transparent 68%)}
+.pilot-ship{width:100%;height:100%;overflow:visible}
+.pilot-ship .ship-hull{filter:drop-shadow(0 0 3px var(--pilot))}
+.pilot-ship .ship-canopy{fill:rgba(6,9,16,.55)}
+.pilot-ship .ship-jets line{stroke-width:.14;stroke-linecap:round;opacity:.5}
+.pilot.on .pilot-ship .ship-jets line{opacity:.9}

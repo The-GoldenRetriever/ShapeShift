@@ -11,7 +11,7 @@ function camera(){
 }
 const MOVE = 1.15;         // how much of that growth travel speeds take on
 const $ = id => document.querySelector(id);
-const ui = { hp: $('#healthFill'), hpText: $('#healthText'), xp: $('#xpFill'), xpText: $('#xpText'), level: $('#levelText'), weapons: $('#weaponList'), room: $('#waveNumber'), roomState: $('#waveState'), kills: $('#killCount'), timer: $('#timer'), best: $('#bestWave'), toast: $('#toast'), dashRow: $('#dashRow'), dashText: $('#dashText'), phaseRow: $('#phaseRow'), phaseText: $('#phaseText'), soundBtn: $('#soundBtn'), xpHud: $('.xp-hud'), arena: $('.arena-label'), fsBtn: $('#fsBtn'), overlay: $('#overlay') };
+const ui = { hp: $('#healthFill'), hpText: $('#healthText'), xp: $('#xpFill'), xpText: $('#xpText'), level: $('#levelText'), weapons: $('#weaponList'), room: $('#waveNumber'), roomState: $('#waveState'), kills: $('#killCount'), timer: $('#timer'), best: $('#bestWave'), toast: $('#toast'), dashRow: $('#dashRow'), dashText: $('#dashText'), phaseRow: $('#phaseRow'), phaseText: $('#phaseText'), pulseRow: $('#pulseRow'), pulseText: $('#pulseText'), soundBtn: $('#soundBtn'), xpHud: $('.xp-hud'), arena: $('.arena-label'), fsBtn: $('#fsBtn'), overlay: $('#overlay') };
 const keys = new Set();
 
 // ---- audio ---------------------------------------------------------------
@@ -101,10 +101,11 @@ function paintSoundBtn(){
 const types = {
   square: { hp: 3, speed: 42, r: 16, color: '#ff6387', xp: 8, sides: 4 },
   triangle: { hp: 1, speed: 78, r: 14, color: '#ffc857', xp: 6, sides: 3 },
-  hex: { hp: 5, speed: 31, r: 20, color: '#ac80ff', xp: 11, sides: 6 },
-  trap: { hp: 8, speed: 20, r: 23, color: '#ff965d', xp: 15, sides: 4 },
+  hex: { hp: 6, speed: 31, r: 20, color: '#ac80ff', xp: 11, sides: 6 },
+  trap: { hp: 10, speed: 20, r: 23, color: '#ff965d', xp: 15, sides: 4 },
   bowtie: { hp: 4, speed: 34, r: 18, color: '#6de0bd', xp: 11, sides: 4, hold: 250 },
-  diamond: { hp: 3, speed: 92, r: 15, color: '#f36bff', xp: 9, sides: 4 },
+  // the only shape that outruns a stock drifter (288px/s) — it is fragile because of it
+  diamond: { hp: 3, speed: 264, r: 15, color: '#f36bff', xp: 9, sides: 4 },
   pentagon: { hp: 20, speed: 24, r: 24, color: '#e88bff', xp: 18, sides: 5 },
   prism: { hp: 7, speed: 58, r: 21, color: '#72a8ff', xp: 16, sides: 6 },
   seeker: { hp: 9, speed: 44, r: 19, color: '#ff6bd6', xp: 22, sides: 7, hold: 300 },
@@ -137,14 +138,14 @@ const characters = {
                blurb:'Armour plating traded for pace.', perks:['+50% hull','-20% speed','+2 regen/s'] },
   skirmisher:{ name:'SKIRMISHER', cost:200,  hp:.7,   speed:1.25, color:'#ffc857', tag:'FRAGILE', dashCd:2, dashPower:1.25, plane:'jet', sides:3, mark:'fins',
                blurb:'Fast and thin. Dying is the only real mistake.', perks:['-30% hull','+25% speed','dash recharges in 2s','dash 25% further'] },
-  archivist: { name:'ARCHIVIST',  cost:450,  hp:.88,  speed:1.05, color:'#a6d8ff', tag:'SCHOLAR', plane:'recon', sides:5, mark:'motes', xp:1.3,
-               blurb:'Reads the remnants faster than anyone. Levels early, levels often.', perks:['+30% XP gained','-12% hull','+5% speed'] },
+  archivist: { name:'ARCHIVIST',  cost:450,  hp:.88,  speed:1.05, color:'#a6d8ff', tag:'SCHOLAR', plane:'recon', sides:5, mark:'motes', xp:1.5,
+               blurb:'Reads the remnants faster than anyone. Levels early, levels often.', perks:['+50% XP gained','-12% hull','+5% speed'] },
   warden:    { name:'WARDEN',     cost:800,  hp:1.2,  speed:.92,  color:'#7ee0ff', tag:'GUARDIAN', plane:'gunship', sides:6, mark:'plate', weapon:'aegis',
                blurb:'Carries a deflector projector. Nothing gets close without paying for it.', perks:['exclusive: DEFLECTOR SHIELD','+20% hull','-8% speed'] },
   revenant:  { name:'REVENANT',   cost:1000, hp:.8,   speed:1.1,  color:'#c879ff', tag:'VOLATILE', plane:'delta', sides:4, mark:'sparks', weapon:'arc',
                blurb:'Wired to an ion arc that leaps between targets.', perks:['exclusive: ION ARC','-20% hull','+10% speed'] },
-  paragon:   { name:'PARAGON',    cost:1200, hp:1.05, speed:1,    color:'#ffe17a', tag:'APEX', plane:'apex', sides:6, mark:'star', damage:1.2, xp:1.2,
-               blurb:'Every system tuned past spec. Expensive for a reason.', perks:['+20% weapon damage','+20% XP gained','+5% hull'] }
+  paragon:   { name:'PARAGON',    cost:2000, hp:1.1,  speed:1.1,  color:'#ffe17a', tag:'APEX', plane:'apex', sides:6, mark:'star', damage:1.2, xp:1.2, shock:14,
+               blurb:'Every system tuned past spec, down to a repulsor nobody else can carry.', perks:['Q &mdash; SHOCKWAVE, 14s cooldown','+20% weapon damage','+20% XP gained','+10% hull','+10% speed'] }
 };
 // v2 introduces the skill tree, which changes what a run is allowed to offer you.
 // Progress earned under the old economy has no meaning here, so every profile is
@@ -259,7 +260,7 @@ function resize() {
 }
 resize(); addEventListener('resize', resize);
 addEventListener('keydown', e => { if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'))return;   // let text fields have their keys
-  const k = e.key.toLowerCase(); if (['arrowup','arrowdown','arrowleft','arrowright',' ','shift'].includes(k)) e.preventDefault(); keys.add(k); if (k === ' ') pause(); if (k === 'shift') dash(); if (k === 'e') phaseCloak(); if (k === 'f') toggleFullscreen(); if (k === 'm'){initAudio();setSound(!soundOn);} });
+  const k = e.key.toLowerCase(); if (['arrowup','arrowdown','arrowleft','arrowright',' ','shift'].includes(k)) e.preventDefault(); keys.add(k); if (k === ' ') pause(); if (k === 'shift') dash(); if (k === 'e') phaseCloak(); if (k === 'q') shockPulse(); if (k === 'f') toggleFullscreen(); if (k === 'm'){initAudio();setSound(!soundOn);} });
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 
 function reset(difficulty = 'medium') {
@@ -267,7 +268,7 @@ function reset(difficulty = 'medium') {
   const maxHp = Math.round(100 * c.hp);
   player = { x: RW / 2, y: RH / 2, r: 16, hp: maxHp, maxHp, speed: Math.round(288 * c.speed * treeSpeed()), regen: 3 + (c.regen || 0), hurtAt: -10, aim: 0, heading: 0, thrust: 0, vx: 0, vy: 0 };
   enemies = []; arrows = []; enemyBullets = []; stars = []; particles = []; blasts = []; delayedBlasts = []; echoShots = []; damageNumbers = []; strikes = []; rings = []; pulses = []; beams = []; mines = []; wells = [];
-  state = { difficulty, last: performance.now(), time: 0, room: 1, level: 1, xp: 0, need: 60, kills: 0, left: 0, spawnIn: 0, active: true, paused: false, upgradeOpen: false, intermission: false, transitioning: false, roomTransition: 0, exit: null, relicRooms: {}, globals: {}, relicsTaken: [], relicOpen: false, vacuum: false, beatBest: false, over: false, dying: 0, hitStop: 0, beatIn: 0, lowPulse: 0, knockX: 0, knockY: 0, knockT: 0, paidCredits: 0, portalArm: 0, history: [], echo: null, cloakTime: 0, cloakCooldown: 0, bowIn: 0, laserIn: 0, bombIn: 0, mineIn: 0, dashCooldown: 0, dashTime: 0, dashX: 0, dashY: 0, dashPower: 1, dashCd: 3, arcIn: 0, character: STARTER, charXp: 1, charDamage: 1, lastMoveX: 1, lastMoveY: 0, shake: 0, playerAlpha: 1, screenAlpha: 0, cameraZoom: 1, zoomCenterX: RW/2, zoomCenterY: RH/2, victoryPortal: null, victorySequence: null, victoryTimer: 0, roomBanner: null, cameraRot: 0, flash: 0, warp: null, suckR: 0, suckA: 0, suckDir: 1, portalCharge: 0, hurtFlash: 0, weapons: { bow: { name: 'VULCAN CANNON', color: '#55e6ff', damage: 2, rate: 1.3, level: 0, upgrades: 0, taken: [], ultimate: false } } };
+  state = { difficulty, last: performance.now(), time: 0, room: 1, level: 1, xp: 0, need: 60, kills: 0, left: 0, spawnIn: 0, active: true, paused: false, upgradeOpen: false, intermission: false, transitioning: false, roomTransition: 0, exit: null, relicRooms: {}, globals: {}, relicsTaken: [], relicOpen: false, vacuum: false, beatBest: false, over: false, dying: 0, hitStop: 0, beatIn: 0, lowPulse: 0, knockX: 0, knockY: 0, knockT: 0, paidCredits: 0, portalArm: 0, history: [], echo: null, cloakTime: 0, cloakCooldown: 0, bowIn: 0, laserIn: 0, bombIn: 0, mineIn: 0, dashCooldown: 0, dashTime: 0, dashX: 0, dashY: 0, dashPower: 1, dashCd: 3, pulseCooldown: 0, pulseCd: 14, arcIn: 0, character: STARTER, charXp: 1, charDamage: 1, lastMoveX: 1, lastMoveY: 0, shake: 0, playerAlpha: 1, screenAlpha: 0, cameraZoom: 1, zoomCenterX: RW/2, zoomCenterY: RH/2, victoryPortal: null, victorySequence: null, victoryTimer: 0, roomBanner: null, cameraRot: 0, flash: 0, warp: null, suckR: 0, suckA: 0, suckDir: 1, portalCharge: 0, hurtFlash: 0, weapons: { bow: { name: 'VULCAN CANNON', color: '#55e6ff', damage: 2, rate: 1.3, level: 0, upgrades: 0, taken: [], ultimate: false } } };
   state.character=chosen;
   state.charXp=c.xp||1;
   state.charDamage=(c.damage||1)*treeDamage();
@@ -275,6 +276,8 @@ function reset(difficulty = 'medium') {
   state.critChance=treeCritChance();
   state.critMult=treeCritMult();
   state.hasDash=treeHas('dashDrive');
+  // the repulsor rides on the airframe, so a resumed run gets it back for free
+  state.hasPulse=!!c.shock; if(c.shock)state.pulseCd=c.shock;
   state.paidSkill=0;
   if(c.dashCd) state.dashCd=c.dashCd;
   if(c.dashPower) state.dashPower=c.dashPower;
@@ -425,6 +428,17 @@ function fire() {
 }
 function hurt(n){if(state.cloakTime>0||state.dying>0)return;sfx('hurt');hitStop(n>=player.maxHp*.25?.07:0);player.hp=Math.max(0,player.hp-n);player.hurtAt=state.time;player.flash=0.1;state.hurtFlash=Math.min(1,(state.hurtFlash||0)+clamp(n/45,.3,1));burst(player.x,player.y,'#ff557d',10,150,{size:2.6,drag:4,spread:player.r});shake(12);}
 function phaseCloak(){if(!state||!state.hasCloak||state.paused||state.victorySequence||state.cloakTime>0||state.cloakCooldown>0)return;state.cloakTime=3;state.cloakCooldown=12;burst(player.x,player.y,'#bca7ff',30,180);}
+// paragon only: the ultimate's clear-the-floor wave on a cooldown. It deals no
+// damage — it buys the second of space that a swarm was about to close.
+function shockPulse(){
+  if(!state||!state.hasPulse||state.paused||state.transitioning||state.victorySequence||state.dying>0||state.pulseCooldown>0)return;
+  state.pulseCooldown=state.pulseCd||14;
+  const col=pilotColor();
+  sfx('ult');hitStop(.06);shake(16);state.flash=Math.max(state.flash,.28);
+  burst(player.x,player.y,col,44,340,{size:3.2,drag:2.4});
+  burst(player.x,player.y,'#ffffff',18,220,{size:2.4,drag:3});
+  shockwave(player.x,player.y,col,1500);
+}
 function dash(){
   if(!state||!state.hasDash||state.paused||state.transitioning||state.victorySequence||(!state.exit&&state.intermission)||state.dashCooldown>0||state.dashTime>0)return;
   let x=(keys.has('d')||keys.has('arrowright')?1:0)-(keys.has('a')||keys.has('arrowleft')?1:0);
@@ -442,6 +456,7 @@ function update(dt,real) {
   state.shake=Math.max(0,state.shake-state.shake*Math.min(1,real*6.4)-real*2);   // framerate-independent falloff
   state.dashCooldown=Math.max(0,state.dashCooldown-dt);
   state.cloakCooldown=Math.max(0,state.cloakCooldown-dt);state.cloakTime=Math.max(0,state.cloakTime-dt);
+  state.pulseCooldown=Math.max(0,state.pulseCooldown-dt);
   if(state.victoryPortal&&!state.victorySequence){
     const p=state.victoryPortal;
     const d=dist(player,p);
@@ -1726,6 +1741,14 @@ function paintAbilities(){
     else {text.textContent='READY';cls+=' ready';}
     dash.className=cls;
   }
+  const wave=ui.pulseRow, wtext=ui.pulseText;
+  if(wave&&wtext){
+    let cls='ability';
+    if(!state.hasPulse){wtext.textContent='LOCKED';cls+=' locked';}
+    else if(state.pulseCooldown>0){wtext.textContent=state.pulseCooldown.toFixed(1)+'s';cls+=' cooldown';}
+    else {wtext.textContent='READY';cls+=' ready';}
+    wave.className=cls;
+  }
   if(phase&&ptext){
     let cls='ability';
     if(!state.hasCloak){ptext.textContent='LOCKED';cls+=' locked';}
@@ -2456,6 +2479,25 @@ const PLANES={
   apex:{jets:[-.36,.36],pts:[[1.80,0],[1.25,.18],[.50,.20],[.85,1.00],[.50,1.08],[-.30,.30],[-1.05,.32],[-1.30,.82],[-1.50,.80],[-1.44,.16],[-1.58,0]]}
 };
 const planeOf=()=>PLANES[((state&&characters[state.character])||characters[STARTER]).plane]||PLANES.fighter;
+// the hangar needs the same silhouette without a canvas, so the half-outline is
+// mirrored into a closed polygon and swung a quarter turn to stand nose-up.
+function planeSvg(c){
+  const P=PLANES[c.plane]||PLANES.fighter, pts=P.pts;
+  const turn=p=>[p[1],-p[0]];
+  const poly=pts.concat(pts.slice(1,-1).reverse().map(p=>[p[0],-p[1]])).map(turn);
+  let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+  for(const p of poly){x0=Math.min(x0,p[0]);x1=Math.max(x1,p[0]);y0=Math.min(y0,p[1]);y1=Math.max(y1,p[1]);}
+  const n=v=>v.toFixed(2), pad=.3, flame=.6;
+  const vb=[x0-pad,y0-pad,(x1-x0)+pad*2,(y1-y0)+pad+flame].map(n).join(' ');
+  const tail=pts[pts.length-1][0];
+  const jets=P.jets.map(j=>{const q=turn([tail,j]);return '<line x1="'+n(q[0])+'" y1="'+n(q[1])+'" x2="'+n(q[0])+'" y2="'+n(q[1]+flame*.85)+'"/>';}).join('');
+  const cp=turn([.72,0]);
+  return '<svg class="pilot-ship" viewBox="'+vb+'" preserveAspectRatio="xMidYMid meet" aria-hidden="true">'
+    +'<g class="ship-jets" stroke="'+c.color+'">'+jets+'</g>'
+    +'<polygon class="ship-hull" points="'+poly.map(p=>n(p[0])+','+n(p[1])).join(' ')+'" fill="'+c.color+'"/>'
+    +'<ellipse class="ship-canopy" cx="'+n(cp[0])+'" cy="'+n(cp[1])+'" rx=".14" ry=".3"/>'
+  +'</svg>';
+}
 function planePath(P,r){
   const pts=P.pts;
   ctx.beginPath();
@@ -2968,6 +3010,7 @@ function showRoster(){
       :have?'<button class="pilot-btn" data-pick="'+id+'">SELECT</button>'
       :'<button class="pilot-btn'+(can?' buy':' locked')+'"'+(can?' data-buy="'+id+'"':' disabled')+'>'+(can?'UNLOCK '+c.cost:'LOCKED '+c.cost)+'</button>';
     return '<div class="pilot'+(active?' on':'')+(have?'':' dim')+'" style="--pilot:'+c.color+'">'
+      +'<div class="pilot-art">'+planeSvg(c)+'</div>'
       +'<div class="pilot-head"><i class="weapon-dot" style="background:'+c.color+'"></i><b>'+c.name+'</b>'+(c.tag?'<span class="pilot-tag">'+c.tag+'</span>':'')+'</div>'
       +'<p class="pilot-blurb">'+c.blurb+'</p>'+perks+action+'</div>';
   }).join('');
@@ -3018,7 +3061,7 @@ function showStart(){
   const resetRow = confirmingReset
     ? '<div class="reset-row confirming"><span>Erase your best room, '+points+' credits and '+unlocked.size+' unlocked pilot'+(unlocked.size===1?'':'s')+(hardStored?', and re-lock IMPOSSIBLE':'')+'? This cannot be undone.</span><button id="resetNo">CANCEL</button><button id="resetYes" class="danger">ERASE</button></div>'
     : '<div class="reset-row"><span>BEST ROOM <b>'+highscore+'</b> <i>&bull;</i> '+points+' CREDITS'+(hardStored?' <i>&bull;</i> IMPOSSIBLE UNLOCKED':devMode?' <i>&bull;</i> IMPOSSIBLE VIA DEV':'')+'</span><button id="resetData">RESET DATA</button></div>';
-  show('<div class="modal"><div class="eyebrow">SHAPESHIFT // NEON SURVIVORS</div><h2>Choose your difficulty</h2><p>Flying as <b style="color:PILOTCOLOR">PILOTNAME</b> &middot; WASD or arrows to move'+(treeHas('dashDrive')?', SHIFT to dash':'')+'. Your cannon fires itself.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>14% less enemy health, 12% slower, 15% softer hits, and a thinner crowd.</p><p class="pay">CREDITS &times;0.7</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Baseline health, speed, damage and numbers. The intended run.</p><p class="pay">CREDITS &times;1</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>+28% health, +20% speed, +35% damage, +22% more enemies and a nastier mix of them.</p><p class="pay">CREDITS &times;1.75</p><button data-difficulty="hard">START HARD</button></div>' + (!hardAvailable ? '<div class="card card-locked"><span class="card-key">04 // LOCKED</span><h3>IMPOSSIBLE</h3><p>Clear room '+IMPOSSIBLE_ROOM+' on any difficulty to unlock. It pays double skill points.</p><p class="pay">BEST ROOM '+highscore+' / '+IMPOSSIBLE_ROOM+'</p></div>' : '')
+  show('<div class="modal"><div class="eyebrow">SHAPESHIFT // NEON SURVIVORS</div><h2>Choose your difficulty</h2><p>Flying as <b style="color:PILOTCOLOR">PILOTNAME</b> &middot; WASD or arrows to move'+(treeHas('dashDrive')?', SHIFT to dash':'')+(pilot.shock?', Q for a shockwave':'')+'. Your cannon fires itself.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>14% less enemy health, 12% slower, 15% softer hits, and a thinner crowd.</p><p class="pay">CREDITS &times;0.7</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Baseline health, speed, damage and numbers. The intended run.</p><p class="pay">CREDITS &times;1</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>+28% health, +20% speed, +35% damage, +22% more enemies and a nastier mix of them.</p><p class="pay">CREDITS &times;1.75</p><button data-difficulty="hard">START HARD</button></div>' + (!hardAvailable ? '<div class="card card-locked"><span class="card-key">04 // LOCKED</span><h3>IMPOSSIBLE</h3><p>Clear room '+IMPOSSIBLE_ROOM+' on any difficulty to unlock. It pays double skill points.</p><p class="pay">BEST ROOM '+highscore+' / '+IMPOSSIBLE_ROOM+'</p></div>' : '')
     + (hardAvailable ? '<div class="card" style="border-color:#ff0000; box-shadow: 0 0 15px #ff000044;"><span class="card-key" style="color:#ff4f9a">04 // '+(hardStored?'ELITE':'DEV')+'</span><h3 style="color:#ff4f9a">IMPOSSIBLE</h3><p>Triple health, +80% speed, double damage, half again as many enemies &mdash; and touching a boss kills you outright.</p><p class="pay hot">CREDITS &times;3 &middot; SKILL &times;2</p><button data-difficulty="impossible" style="background:#ff4f9a">START IMPOSSIBLE</button></div>' : '') + '</div>' + resetRow + '<button class="continue ghost" id="startBack">BACK</button></div>');
   ui.overlay.innerHTML=ui.overlay.innerHTML.replace('PILOTCOLOR',pilot.color).replace('PILOTNAME',pilot.name);
   document.querySelectorAll('[data-difficulty]').forEach(b=>b.onclick=()=>{
