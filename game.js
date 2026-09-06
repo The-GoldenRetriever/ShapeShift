@@ -103,12 +103,12 @@ const types = {
   triangle: { hp: 1, speed: 78, r: 14, color: '#ffc857', xp: 6, sides: 3 },
   hex: { hp: 5, speed: 31, r: 20, color: '#ac80ff', xp: 11, sides: 6 },
   trap: { hp: 8, speed: 20, r: 23, color: '#ff965d', xp: 15, sides: 4 },
-  bowtie: { hp: 4, speed: 34, r: 18, color: '#6de0bd', xp: 11, sides: 4 },
+  bowtie: { hp: 4, speed: 34, r: 18, color: '#6de0bd', xp: 11, sides: 4, hold: 250 },
   diamond: { hp: 3, speed: 92, r: 15, color: '#f36bff', xp: 9, sides: 4 },
   pentagon: { hp: 20, speed: 24, r: 24, color: '#e88bff', xp: 18, sides: 5 },
   prism: { hp: 7, speed: 58, r: 21, color: '#72a8ff', xp: 16, sides: 6 },
-  seeker: { hp: 9, speed: 44, r: 19, color: '#ff6bd6', xp: 22, sides: 7 },
-  raker: { hp: 14, speed: 24, r: 22, color: '#b6ff5c', xp: 27, sides: 4 },
+  seeker: { hp: 9, speed: 44, r: 19, color: '#ff6bd6', xp: 22, sides: 7, hold: 300 },
+  raker: { hp: 14, speed: 24, r: 22, color: '#b6ff5c', xp: 27, sides: 4, hold: 330 },
   boss: { hp: 360, speed: 27, r: 52, color: '#ff4f9a', xp: 120, sides: 8 },
   sentinel: { hp: 360, speed: 27, r: 66, color: '#ff4f9a', xp: 120, sides: 8 },
   lance:    { hp: 360, speed: 62, r: 52, color: '#ff8a3d', xp: 155, sides: 3 },
@@ -337,7 +337,7 @@ function spawn() {
   const name=type(), spec=types[name], p=edge();
   const difficulty = difficulties[state.difficulty];
   const hp = Math.max(1, Math.ceil(spec.hp * 1.1 * difficulty.hp * (1 + (state.room - 1) * .035)));
-  enemies.push({type:name,x:p.x,y:p.y,hp,maxHp:hp,r:spec.r,shoot:rand(1,3),phase:Math.random()*7,flash:0,slowT:0,slowAmt:0,rot:Math.random()*7,rotSpeed:rand(-1.1,1.1),born:state.time,numIn:0});
+  enemies.push({type:name,x:p.x,y:p.y,hp,maxHp:hp,r:spec.r,shoot:rand(1,3),phase:Math.random()*7,flash:0,slowT:0,slowAmt:0,rot:ang(p,player),born:state.time,numIn:0});
 }
 function beginRoom() {
   camera();   // the opening wave spawns relative to the view, so fix it on the player first
@@ -361,7 +361,7 @@ function spawnBoss(){
   const cycle=Math.floor((Math.max(1,Math.floor(state.room/10))-1)/bossOrder.length);
   const hp=Math.ceil(spec.hp*def.hpMult*difficulty.hp*(1+Math.max(0,state.room-10)*.085)*(1+cycle*.75));
   enemies.push({type:def.id,bossId:def.id,contact:def.contact,x:RW/2,y:220,hp,maxHp:hp,r:spec.r,
-    shoot:1.1,phase:0,flash:0,slowT:0,slowAmt:0,boss:true,rot:0,rotSpeed:.45,born:state.time,numIn:0,
+    shoot:1.1,phase:0,flash:0,slowT:0,slowAmt:0,boss:true,rot:0,born:state.time,numIn:0,
     mode:'idle',timer:1.2,beamRot:0,shield:0,adds:0,blinkT:0});
   state.bossName=def.name;
 }
@@ -720,7 +720,7 @@ const bossBehaviour={
       if(e.adds<3&&e.timer<=0){
         const p=edge();
         const add=spawnAt('diamond',p.x,p.y);
-        if(add){add.escortOf=e;add.rotSpeed=2;e.adds++;}
+        if(add){add.escortOf=e;e.adds++;}
         e.timer=.5;
       }
       if(e.adds>=3&&escorts===0){
@@ -743,7 +743,7 @@ function spawnAt(name,x,y){
   const difficulty=difficulties[state.difficulty];
   const hp=Math.max(1,Math.ceil(spec.hp*1.1*difficulty.hp*(1+(state.room-1)*.035)));
   const e={type:name,x,y,hp,maxHp:hp,r:spec.r,shoot:rand(1,3),phase:Math.random()*7,flash:0,slowT:0,slowAmt:0,
-    rot:Math.random()*7,rotSpeed:rand(-1.1,1.1),born:state.time,numIn:0};
+    rot:ang({x,y},player),born:state.time,numIn:0};
   enemies.push(e);
   return e;
 }
@@ -859,13 +859,30 @@ function updateRings(dt){
 }
 const slowFactor=e=>e.slowT>0?1-(e.slowAmt||0):1;
 function moveEnemy(e,dt) {
-  const difficulty=difficulties[state.difficulty], spec=types[e.type], a=ang(e,player)+(e.type==='bowtie'?Math.sin(state.time*5+e.phase)*.75:0);
+  const difficulty=difficulties[state.difficulty], spec=types[e.type], a=ang(e,player);
 
   if(e.boss){
     (bossBehaviour[e.bossId]||bossBehaviour.sentinel)(e,dt,difficulty,spec,a);
   }else{
     const s=spec.speed*difficulty.speed*MOVE*slowFactor(e);
-    e.x+=Math.cos(a)*s*dt;e.y+=Math.sin(a)*s*dt;
+    const d=dist(e,player)||1, ux=(player.x-e.x)/d, uy=(player.y-e.y)/d, tx=-uy, ty=ux;
+    const hold=spec.hold||0;
+    let fx=0,fy=0;
+    // gunboats hold a standoff range and strafe; everything else closes in
+    if(hold){
+      const orbit=e.orbit||(e.orbit=Math.random()<.5?-1:1);
+      if(d<hold*.85){fx-=ux;fy-=uy;}else if(d>hold*1.15){fx+=ux;fy+=uy;}
+      fx+=tx*orbit*.7;fy+=ty*orbit*.7;
+    }else{fx+=ux;fy+=uy;}
+    // keep clear of each other, and slide sideways off anything sharing the same approach
+    for(const o of enemies){
+      if(o===e)continue;
+      const dx=e.x-o.x, dy=e.y-o.y, dd=Math.hypot(dx,dy)||1, gap=e.r+o.r+12;
+      if(dd<gap){const p=(gap-dd)/gap;fx+=dx/dd*p*2.4;fy+=dy/dd*p*2.4;}
+      else if(dd<210){const side=(dx*tx+dy*ty)>=0?1:-1, w=(1-dd/210)*.9;fx+=tx*side*w;fy+=ty*side*w;}
+    }
+    const fl=Math.hypot(fx,fy)||1;
+    e.x=clamp(e.x+fx/fl*s*dt,e.r,RW-e.r);e.y=clamp(e.y+fy/fl*s*dt,e.r,RH-e.r);
   }
 
   if(e.kt>0){
@@ -875,7 +892,11 @@ function moveEnemy(e,dt) {
     e.kt-=dt;
   }
   e.flash=Math.max(0,e.flash-dt);
-  e.rot=(e.rot||0)+(e.rotSpeed||0)*dt;
+  {  // hulls turn to face you rather than tumbling
+    let dr=a-(e.rot||0);
+    while(dr<-Math.PI)dr+=Math.PI*2;while(dr>Math.PI)dr-=Math.PI*2;
+    e.rot=(e.rot||0)+dr*Math.min(1,dt*6);
+  }
   e.numIn=(e.numIn||0)-dt;
   e.slowT=Math.max(0,(e.slowT||0)-dt);
   e.deflect=Math.max(0,(e.deflect||0)-dt);
@@ -1815,11 +1836,28 @@ function rgba(hex,a){
   if(!c){const h=hex.length===4?'#'+hex[1]+hex[1]+hex[2]+hex[2]+hex[3]+hex[3]:hex;c=[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];hexCache[hex]=c;}
   return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')';
 }
-function starPath(r,ir,points,rot){ctx.beginPath();for(let i=0;i<points*2;i++){const a=rot+i*Math.PI/points,rr=i%2?ir:r,x=Math.cos(a)*rr,y=Math.sin(a)*rr;i?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.closePath();}
+// hull silhouettes, nose along +x; each is one closed path so fills, outlines and
+// overlays all share it
+const HULLS={
+  interceptor:[[1.1,0],[-.5,.35],[-.9,.9],[-.7,.15],[-.7,-.15],[-.9,-.9],[-.5,-.35]],
+  pod:[[.8,-.5],[1,0],[.8,.5],[-.5,.5],[-.5,.9],[-1,.9],[-1,-.9],[-.5,-.9],[-.5,-.5]],
+  cruiser:[[1.1,0],[.5,.6],[-.6,.7],[-1,.35],[-1,-.35],[-.6,-.7],[.5,-.6]],
+  hauler:[[.7,-.4],[1,0],[.7,.4],[.2,.5],[.1,.95],[-.9,.95],[-1,.4],[-1,-.4],[-.9,-.95],[.1,-.95],[.2,-.5]],
+  gunship:[[1,0],[.4,.3],[.3,1],[-.3,1],[-.4,.3],[-1,.2],[-1,-.2],[-.4,-.3],[-.3,-1],[.3,-1],[.4,-.3]],
+  racer:[[1.3,0],[-.2,.45],[-.9,.6],[-.7,0],[-.9,-.6],[-.2,-.45]],
+  dreadnought:[[1.1,0],[.7,.55],[.1,.6],[-.1,1],[-.8,1],[-1,.5],[-1,-.5],[-.8,-1],[-.1,-1],[.1,-.6],[.7,-.55]],
+  corvette:[[1.1,0],[.3,.4],[-.2,.95],[-.7,.95],[-.5,.4],[-1,.3],[-1,-.3],[-.5,-.4],[-.7,-.95],[-.2,-.95],[.3,-.4]],
+  frigate:[[1,0],[.6,.35],[.6,.8],[-.2,.9],[-.6,.55],[-1,.55],[-1,-.55],[-.6,-.55],[-.2,-.9],[.6,-.8],[.6,-.35]],
+  barge:[[1,0],[.8,.5],[-.2,.6],[-.4,1],[-1,1],[-.9,.3],[-.9,-.3],[-1,-1],[-.4,-1],[-.2,-.6],[.8,-.5]],
+  capital:[[1.2,0],[.6,.45],[.2,.45],[0,1],[-.7,1],[-.9,.5],[-1.1,.5],[-1.1,-.5],[-.9,-.5],[-.7,-1],[0,-1],[.2,-.45],[.6,-.45]]
+};
+const HULL_OF={square:'pod',triangle:'interceptor',hex:'cruiser',trap:'hauler',bowtie:'gunship',diamond:'racer',pentagon:'dreadnought',prism:'corvette',seeker:'frigate',raker:'barge',
+  boss:'capital',sentinel:'capital',lance:'racer',orbiter:'cruiser',beacon:'gunship',hollow:'capital'};
 function enemyPath(e,sp){
-  if(e.type==='bowtie')starPath(e.r*1.18,e.r*.4,4,Math.PI/4);
-  else if(e.type==='trap'){ctx.beginPath();ctx.moveTo(-e.r*.92,e.r*.74);ctx.lineTo(e.r*.92,e.r*.74);ctx.lineTo(e.r*.6,-e.r*.78);ctx.lineTo(-e.r*.6,-e.r*.78);ctx.closePath();}
-  else poly(0,0,e.r,sp.sides,e.type==='triangle'?-Math.PI/2:Math.PI/4);
+  const pts=HULLS[HULL_OF[e.type]||'pod'];
+  ctx.beginPath();
+  for(let i=0;i<pts.length;i++){const x=pts[i][0]*e.r,y=pts[i][1]*e.r;i?ctx.lineTo(x,y):ctx.moveTo(x,y);}
+  ctx.closePath();
 }
 function drawStars(){
   for(const s of stars){
@@ -1904,6 +1942,11 @@ function drawEnemies(){
     ctx.fillStyle=hit?'#fff':sp.color;
     enemyPath(e,sp);ctx.fill();
     ctx.shadowBlur=0;
+    // canopy and engine lights
+    ctx.fillStyle='#0a1120';ctx.globalAlpha=grow*.8;
+    ctx.beginPath();ctx.ellipse(e.r*.35,0,e.r*.22,e.r*.14,0,0,7);ctx.fill();
+    ctx.fillStyle='#ffffff';ctx.globalAlpha=grow*(.55+Math.sin(state.time*18+(e.phase||0))*.2);
+    for(const s of [-1,1]){ctx.beginPath();ctx.arc(-e.r*.9,s*e.r*.32,e.r*.09,0,7);ctx.fill();}
     if(e.laserLinger>0){
       ctx.save();ctx.globalCompositeOperation='lighter';
       ctx.globalAlpha=grow*.45*clamp(e.laserLinger/1.2,0,1)*(.7+Math.sin(state.time*17)*.3);
