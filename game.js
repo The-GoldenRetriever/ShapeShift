@@ -11,7 +11,7 @@ function camera(){
 }
 const MOVE = 1.15;         // how much of that growth travel speeds take on
 const $ = id => document.querySelector(id);
-const ui = { hp: $('#healthFill'), hpText: $('#healthText'), xp: $('#xpFill'), xpText: $('#xpText'), level: $('#levelText'), weapons: $('#weaponList'), room: $('#waveNumber'), roomState: $('#waveState'), kills: $('#killCount'), timer: $('#timer'), best: $('#bestWave'), toast: $('#toast'), hintPhase: $('#hintPhase'), soundBtn: $('#soundBtn'), arena: $('.arena-label'), fsBtn: $('#fsBtn'), overlay: $('#overlay') };
+const ui = { hp: $('#healthFill'), hpText: $('#healthText'), xp: $('#xpFill'), xpText: $('#xpText'), level: $('#levelText'), weapons: $('#weaponList'), room: $('#waveNumber'), roomState: $('#waveState'), kills: $('#killCount'), timer: $('#timer'), best: $('#bestWave'), toast: $('#toast'), dashRow: $('#dashRow'), dashText: $('#dashText'), phaseRow: $('#phaseRow'), phaseText: $('#phaseText'), soundBtn: $('#soundBtn'), arena: $('.arena-label'), fsBtn: $('#fsBtn'), overlay: $('#overlay') };
 const keys = new Set();
 
 // ---- audio ---------------------------------------------------------------
@@ -124,7 +124,7 @@ const bossOrder = [
   { id:'hollow',   name:'HOLLOW',   hpMult:.86,  contact:30, blurb:'Shields itself, calls escorts, rings' }
 ];
 const bossForRoom = room => bossOrder[(Math.max(1,Math.floor(room/10))-1) % bossOrder.length];
-let player, enemies, arrows, enemyBullets, stars, particles, blasts, echoShots, damageNumbers, delayedBlasts, strikes, rings, state;
+let player, enemies, arrows, enemyBullets, stars, particles, blasts, echoShots, damageNumbers, delayedBlasts, strikes, rings, pulses, state;
 // ---- roster -------------------------------------------------------------
 // hp/speed are multipliers on the 100hp / 288px-per-second baseline.
 // `weapon` grants a weapon nobody else can be offered.
@@ -244,7 +244,7 @@ function reset(difficulty = 'medium') {
   const c = characters[chosen] || characters[STARTER];
   const maxHp = Math.round(100 * c.hp);
   player = { x: RW / 2, y: RH / 2, r: 16, hp: maxHp, maxHp, speed: Math.round(288 * c.speed), regen: 3 + (c.regen || 0), hurtAt: -10, aim: 0, vx: 0, vy: 0 };
-  enemies = []; arrows = []; enemyBullets = []; stars = []; particles = []; blasts = []; delayedBlasts = []; echoShots = []; damageNumbers = []; strikes = []; rings = [];
+  enemies = []; arrows = []; enemyBullets = []; stars = []; particles = []; blasts = []; delayedBlasts = []; echoShots = []; damageNumbers = []; strikes = []; rings = []; pulses = [];
   state = { difficulty, last: performance.now(), time: 0, room: 1, level: 1, xp: 0, need: 60, kills: 0, left: 0, spawnIn: 0, active: true, paused: false, upgradeOpen: false, intermission: false, transitioning: false, roomTransition: 0, exit: null, relicRooms: {}, globals: {}, relicsTaken: [], relicOpen: false, vacuum: false, beatBest: false, over: false, dying: 0, hitStop: 0, beatIn: 0, lowPulse: 0, knockX: 0, knockY: 0, knockT: 0, paidCredits: 0, portalArm: 0, history: [], echo: null, cloakTime: 0, cloakCooldown: 0, bowIn: 0, laserIn: 0, bombIn: 0, dashCooldown: 0, dashTime: 0, dashX: 0, dashY: 0, dashPower: 1, dashCd: 3, arcIn: 0, character: STARTER, charXp: 1, charDamage: 1, lastMoveX: 1, lastMoveY: 0, shake: 0, playerAlpha: 1, screenAlpha: 0, cameraZoom: 1, zoomCenterX: RW/2, zoomCenterY: RH/2, victoryPortal: null, victorySequence: null, victoryTimer: 0, roomBanner: null, cameraRot: 0, flash: 0, warp: null, suckR: 0, suckA: 0, suckDir: 1, portalCharge: 0, hurtFlash: 0, weapons: { bow: { name: 'LONGBOW', color: '#55e6ff', damage: 2, rate: 1.3, level: 0, upgrades: 0, taken: [], ultimate: false } } };
   state.character=chosen;
   state.charXp=c.xp||1;
@@ -552,7 +552,7 @@ function update(dt,real) {
   if(state.active&&state.left>0){state.spawnIn-=dt;if(state.spawnIn<=0){spawn();state.left--;state.spawnIn=Math.max(.18,.55-state.room*.02);}}
   state.bowIn-=dt;if(state.bowIn<=0){fire();state.bowIn=1/state.weapons.bow.rate;}
   for(const e of enemies) moveEnemy(e,dt);
-  weapons(dt); updateArrows(dt); updateEchoShots(dt); updateEnemyBullets(dt); updateStars(dt); deaths(); updateParticles(dt); updateBlasts(dt); updateDelayedBlasts(dt); updateStrikes(dt); updateRings(dt); updateDamageNumbers(dt);
+  weapons(dt); updateArrows(dt); updateEchoShots(dt); updateEnemyBullets(dt); updateStars(dt); deaths(); updateParticles(dt); updateBlasts(dt); updateDelayedBlasts(dt); updateStrikes(dt); updateRings(dt); updatePulses(dt); updateDamageNumbers(dt);
   if(state.active&&state.left===0&&enemies.length===0) finishRoom();
   if(player.hp<=0&&!state.dying&&!state.over){
     state.dying=1.05;
@@ -724,6 +724,50 @@ function updateStrikes(dt){
   strikes=strikes.filter(s=>!s.done);
 }
 // expanding shockwave rings: damage lives at the ring edge, so dash through it
+// an outward wave from the player: it does not hurt anything, it just clears
+// the floor. Bosses only stagger rather than being flung across the room.
+function shockwave(x,y,color,power,radius){
+  pulses.push({x,y,r:0,max:radius||960,speed:1900,power,color,hit:[],life:.75});
+}
+function updatePulses(dt){
+  for(const p of pulses){
+    p.r+=p.speed*dt;p.life-=dt;
+    for(const e of enemies){
+      if(p.hit.includes(e))continue;
+      const d=dist(e,p);
+      if(d>p.r)continue;
+      p.hit.push(e);
+      const falloff=1-clamp(d/p.max,0,1)*.5;
+      const push=p.power*falloff*(e.boss?.45:1);   // bosses lurch, they do not fly
+      const dir=d||1;
+      e.kx=(e.x-p.x)/dir*push;e.ky=(e.y-p.y)/dir*push;
+      e.kt=e.ktMax=.55;
+      e.flash=Math.max(e.flash,.12);
+      burst(e.x,e.y,p.color,6,190,{size:2.4,drag:3});
+    }
+  }
+  pulses=pulses.filter(p=>p.life>0&&p.r<p.max*1.25);
+}
+function drawPulses(){
+  for(const p of pulses){
+    const grow=clamp(p.r/p.max,0,1), fade=clamp(p.life/.75,0,1)*(1-grow*.55);
+    if(fade<=0)continue;
+    ctx.save();
+    ctx.globalCompositeOperation='lighter';
+    ctx.globalAlpha=fade*.85;
+    ctx.strokeStyle=p.color;ctx.shadowColor=p.color;ctx.shadowBlur=26;
+    ctx.lineWidth=16*(1-grow*.6)+3;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);ctx.stroke();
+    ctx.shadowBlur=0;
+    ctx.globalAlpha=fade;
+    ctx.strokeStyle='#ffffff';ctx.lineWidth=3.5*(1-grow*.5);
+    ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);ctx.stroke();
+    ctx.globalAlpha=fade*.3;
+    ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.r*.82,0,7);ctx.stroke();
+    ctx.restore();
+  }
+}
 function updateRings(dt){
   for(const r of rings){
     r.r+=r.speed*dt;r.life-=dt;
@@ -745,6 +789,12 @@ function moveEnemy(e,dt) {
     e.x+=Math.cos(a)*s*dt;e.y+=Math.sin(a)*s*dt;
   }
 
+  if(e.kt>0){
+    const f=clamp(e.kt/(e.ktMax||.55),0,1);
+    e.x=clamp(e.x+e.kx*f*dt,e.r,RW-e.r);
+    e.y=clamp(e.y+e.ky*f*dt,e.r,RH-e.r);
+    e.kt-=dt;
+  }
   e.flash=Math.max(0,e.flash-dt);
   e.rot=(e.rot||0)+(e.rotSpeed||0)*dt;
   e.numIn=(e.numIn||0)-dt;
@@ -1008,7 +1058,7 @@ function updateDelayedBlasts(dt){for(const b of delayedBlasts){b.timer-=dt;if(b.
 function finishRoom(){
   if(state.exit||state.transitioning||state.victoryPortal)return;
   state.active=false;state.intermission=true;
-  enemyBullets.length=0;strikes.length=0;rings.length=0;   // the room is won; no dying to a stray shot afterwards
+  enemyBullets.length=0;strikes.length=0;rings.length=0;pulses.length=0;   // the room is won; no dying to a stray shot afterwards
   state.vacuum=true;
   sfx('cleared');hitStop(.07);
   toast('ROOM '+state.room+' CLEARED');
@@ -1128,11 +1178,12 @@ function upgrade(id){
   else if(id.endsWith('-ultimate')){
     const weapon=id.replace('-ultimate',''),w=state.weapons[weapon];
     if(w&&!w.ultimate){
-      w.ultimate=true;w.level=6;w.ultimateIn=0;sfx('ult');hitStop(.09);
+      w.ultimate=true;w.level=6;w.ultimateIn=0;sfx('ult');hitStop(.14);
       if(weapon==='aegis'){w.pull=true;w.pulse=true;w.pulseIn=Math.min(w.pulseIn||2.2,2.2);}
-      state.flash=Math.max(state.flash,.55);shake(14);
-      burst(player.x,player.y,w.color,44,340,{size:3.4,drag:2.4});
-      blasts.push({x:player.x,y:player.y,radius:210,life:.55,maxLife:.55,color:w.color});
+      state.flash=Math.max(state.flash,.7);shake(22);
+      burst(player.x,player.y,w.color,54,380,{size:3.6,drag:2.2});
+      burst(player.x,player.y,'#ffffff',22,240,{size:2.6,drag:3});
+      shockwave(player.x,player.y,w.color,1500);
     }
   }
   else {const weapon=id.split('-')[0],w=state.weapons[weapon],u=weaponUpgrades[weapon]&&weaponUpgrades[weapon].find(x=>x[0]===id);if(w&&u&&!w.taken.includes(id)){w.taken.push(id);w.upgrades++;w.level=w.upgrades;applyWeaponUpgrade(weapon,id);}}
@@ -1231,7 +1282,25 @@ function gameOver(){
   $('#toStart').onclick=showHome;
 }
 function show(markup){ui.overlay.innerHTML=markup;ui.overlay.classList.remove('hidden');}function hide(){ui.overlay.classList.add('hidden');ui.overlay.innerHTML='';}
-function hud(){ui.hp.style.width=player.hp/player.maxHp*100+'%';ui.hpText.textContent=Math.ceil(player.hp)+' / '+player.maxHp;ui.xp.style.width=Math.min(100,state.xp/state.need*100)+'%';ui.xpText.textContent=Math.floor(state.xp)+' / '+state.need+' XP';ui.level.textContent='LV '+state.level;ui.kills.textContent=state.kills;paintBest();if(ui.arena)ui.arena.innerHTML='ROOM '+state.room+' <span>&bull;</span> BEST '+highscore;ui.timer.textContent=new Date(state.time*1000).toISOString().slice(14,19);ui.weapons.innerHTML=Object.values(state.weapons).map(w=>'<span class="weapon-item'+(w.ultimate?' ult':'')+'"><i class="weapon-dot" style="background:'+w.color+'"></i>'+w.name+' <small>'+(w.ultimate?'MAX':'★'+w.taken.length+(w.taken.length>=5?' ▲':''))+'</small></span>').join('');const dash=document.querySelector('.dash-hud'),text=document.querySelector('#dashText');dash.classList.toggle('boosted',!!state.globals.dash);if(ui.hintPhase)ui.hintPhase.style.display=state.hasCloak?'':'none';if(state.dashTime>0){text.textContent='DASHING';dash.classList.remove('cooldown');}else if(state.dashCooldown>0){text.textContent=state.dashCooldown.toFixed(1)+'s';dash.classList.add('cooldown');}else{text.textContent='READY';dash.classList.remove('cooldown');}}
+function hud(){ui.hp.style.width=player.hp/player.maxHp*100+'%';ui.hpText.textContent=Math.ceil(player.hp)+' / '+player.maxHp;ui.xp.style.width=Math.min(100,state.xp/state.need*100)+'%';ui.xpText.textContent=Math.floor(state.xp)+' / '+state.need+' XP';ui.level.textContent='LV '+state.level;ui.kills.textContent=state.kills;paintBest();if(ui.arena)ui.arena.innerHTML='ROOM '+state.room+' <span>&bull;</span> BEST '+highscore;ui.timer.textContent=new Date(state.time*1000).toISOString().slice(14,19);ui.weapons.innerHTML=Object.values(state.weapons).map(w=>'<span class="weapon-item'+(w.ultimate?' ult':'')+'"><i class="weapon-dot" style="background:'+w.color+'"></i>'+w.name+' <small>'+(w.ultimate?'MAX':'★'+w.taken.length+(w.taken.length>=5?' ▲':''))+'</small></span>').join('');paintAbilities();}
+function paintAbilities(){
+  const dash=ui.dashRow, text=ui.dashText, phase=ui.phaseRow, ptext=ui.phaseText;
+  if(dash&&text){
+    let cls='ability'+(state.globals.dash?' boosted':'');
+    if(state.dashTime>0){text.textContent='DASHING';cls+=' active';}
+    else if(state.dashCooldown>0){text.textContent=state.dashCooldown.toFixed(1)+'s';cls+=' cooldown';}
+    else {text.textContent='READY';cls+=' ready';}
+    dash.className=cls;
+  }
+  if(phase&&ptext){
+    let cls='ability';
+    if(!state.hasCloak){ptext.textContent='LOCKED';cls+=' locked';}
+    else if(state.cloakTime>0){ptext.textContent=state.cloakTime.toFixed(1)+'s';cls+=' active';}
+    else if(state.cloakCooldown>0){ptext.textContent=state.cloakCooldown.toFixed(1)+'s';cls+=' cooldown';}
+    else {ptext.textContent='READY';cls+=' ready';}
+    phase.className=cls;
+  }
+}
 function poly(x,y,r,n,rot){ctx.beginPath();for(let i=0;i<n;i++){const a=rot+i*Math.PI*2/n,px=x+Math.cos(a)*r,py=y+Math.sin(a)*r;i?ctx.lineTo(px,py):ctx.moveTo(px,py);}ctx.closePath();}
 function updateDamageNumbers(dt){for(const d of damageNumbers){d.y-=40*dt;d.life-=dt;}damageNumbers=damageNumbers.filter(d=>d.life>0);}
 function drawDamageNumbers(){
@@ -1407,7 +1476,7 @@ function draw(){
   }
   ctx.translate(-camX,-camY);
   drawBackground();
-  drawStrikes();drawStars();drawEnemies();drawBossArt();drawProjectiles();drawRings();drawBlasts();drawParticles();drawEcho();drawPortal();drawPlayer();drawWeaponEffects();drawDamageNumbers();
+  drawStrikes();drawStars();drawEnemies();drawBossArt();drawProjectiles();drawRings();drawPulses();drawBlasts();drawParticles();drawEcho();drawPortal();drawPlayer();drawWeaponEffects();drawDamageNumbers();
   ctx.restore();
   drawOffscreenMarkers();
   drawVignette();
