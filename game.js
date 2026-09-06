@@ -1055,8 +1055,8 @@ function updateArrows(dt) {
   for(const a of arrows){
     if(a.homing){
       a.homeIn=(a.homeIn||0)-dt;
-      // each arrow chases whatever is nearest to itself, not a shared target
-      const t=enemies.reduce((best,e)=>{if(!onScreen(e))return best;const d=dist(e,a);return d<440&&(!best||d<best.d)?{e,d}:best;},null);
+      // each arrow chases whatever is nearest to itself — an enemy, or an incoming bullet worth intercepting
+      const t=[...enemies,...enemyBullets].reduce((best,e)=>{if(!onScreen(e))return best;const d=dist(e,a);return d<440&&(!best||d<best.d)?{e,d}:best;},null);
       // long shots fan out before steering; a point-blank shot has no time to
       // fan, so it corrects immediately rather than sailing past
       if(t&&(a.homeIn<=0||t.d<150)){
@@ -1075,6 +1075,11 @@ function updateArrows(dt) {
       e.hp-=a.damage;e.flash=.1;spawnDamageNumber(e.x,e.y,Math.ceil(a.damage),a.color);shake(2);sfx('hit');
       if(a.pierce>0)a.pierce--;else a.life=0;
       burst(a.x,a.y,a.color,6,120,{size:2.2,drag:5});
+    }
+    // meeting an enemy bullet head-on cancels both projectiles out
+    if(a.life>0)for(const b of enemyBullets)if(b.life>0&&dist(a,b)<b.r+5){
+      b.life=0;a.life=0;burst(a.x,a.y,'#fff6c9',8,140,{size:2.4,drag:5});sfx('hit');
+      break;
     }
   }
   arrows=arrows.filter(a=>a.life>0&&a.x>0&&a.x<RW&&a.y>0&&a.y<RH);
@@ -1225,11 +1230,11 @@ const weaponUpgrades={
     ['sword-reach','EXTENDED EDGE','Blade reach +26.'],
     ['sword-spin','RAPID SPIN','Blade rotates 50% faster.'],
     ['sword-span','LONG SWEEP','Blade reach +35%.'],
-    ['sword-sharp','STAR SHARPENING','Blade damage +2.5.'],
+    ['sword-sharp','STAR SHARPENING','Blade damage +4.'],
     ['sword-guard','KINETIC GUARD','Blade reduces contact damage by 30%.']
   ]
 };
-const weaponData={laser:['PRISM LASER','#c879ff',.55,5],bomb:['VOID CHARGE','#ff965d',3,.4],sword:['STAR BLADE','#ffe17a',2.5,1],aegis:['AEGIS FIELD','#7ee0ff',1.5,1],arc:['ARC NODE','#c8a2ff',3,1.05]};
+const weaponData={laser:['PRISM LASER','#c879ff',.55,5],bomb:['VOID CHARGE','#ff965d',3,.4],sword:['STAR BLADE','#ffe17a',4,1],aegis:['AEGIS FIELD','#7ee0ff',1.5,1],arc:['ARC NODE','#c8a2ff',3,1.05]};
 // weapons only a specific character brings; never offered as a normal unlock
 const exclusiveWeapons={aegis:'warden',arc:'revenant'};
 const ultimateData={
@@ -1295,7 +1300,7 @@ function upgrade(id){
   else {const weapon=id.split('-')[0],w=state.weapons[weapon],u=weaponUpgrades[weapon]&&weaponUpgrades[weapon].find(x=>x[0]===id);if(w&&u&&!w.taken.includes(id)){w.taken.push(id);w.upgrades++;w.level=w.upgrades;applyWeaponUpgrade(weapon,id);}}
   state.paused=false;hide();
 }
-function applyWeaponUpgrade(weapon,id){const w=state.weapons[weapon];if(weapon==='bow'){if(id==='bow-split')w.shots=(w.shots||1)+1;if(id==='bow-pierce')w.pierce=(w.pierce||0)+1;if(id==='bow-heavy')w.damage+=2;if(id==='bow-draw')w.rate*=1.35;if(id==='bow-seeker'){w.projectileSpeed=(w.projectileSpeed||540)*1.4;w.homing=true;}}if(weapon==='laser'){if(id==='laser-focus')w.damage+=.5;if(id==='laser-pulse')w.rate*=1.35;if(id==='laser-reach')w.range=(w.range||640)+260;if(id==='laser-scorch')w.linger=1.2;if(id==='laser-prism')w.split=true;}if(weapon==='bomb'){if(id==='bomb-radius')w.radius=(w.radius||135)+40;if(id==='bomb-cluster')w.double=true;if(id==='bomb-fuse')w.rate*=1.35;if(id==='bomb-impact')w.damage+=2;if(id==='bomb-pull')w.pull=true;}if(weapon==='aegis'){if(id==='aegis-radius')w.radius=(w.radius||125)+46;if(id==='aegis-power')w.damage+=1.4;if(id==='aegis-drag')w.drag=.55;if(id==='aegis-pulse'){w.pulse=true;w.pulseIn=2.2;}if(id==='aegis-plating')w.plating=true;}if(weapon==='arc'){if(id==='arc-chain')w.chain=(w.chain||1)+1;if(id==='arc-power')w.damage+=2.2;if(id==='arc-rate')w.rate*=1.3;if(id==='arc-reach')w.reach=(w.reach||320)+130;if(id==='arc-overload')w.overload=true;}if(weapon==='sword'){if(id==='sword-reach')w.reach=(w.reach||78)+26;if(id==='sword-spin')w.spin=(w.spin||4)*1.5;if(id==='sword-span')w.reach=(w.reach||78)*1.35;if(id==='sword-sharp')w.damage+=2.5;if(id==='sword-guard')w.guard=true;}
+function applyWeaponUpgrade(weapon,id){const w=state.weapons[weapon];if(weapon==='bow'){if(id==='bow-split')w.shots=(w.shots||1)+1;if(id==='bow-pierce')w.pierce=(w.pierce||0)+1;if(id==='bow-heavy')w.damage+=2;if(id==='bow-draw')w.rate*=1.35;if(id==='bow-seeker'){w.projectileSpeed=(w.projectileSpeed||540)*1.4;w.homing=true;}}if(weapon==='laser'){if(id==='laser-focus')w.damage+=.5;if(id==='laser-pulse')w.rate*=1.35;if(id==='laser-reach')w.range=(w.range||640)+260;if(id==='laser-scorch')w.linger=1.2;if(id==='laser-prism')w.split=true;}if(weapon==='bomb'){if(id==='bomb-radius')w.radius=(w.radius||135)+40;if(id==='bomb-cluster')w.double=true;if(id==='bomb-fuse')w.rate*=1.35;if(id==='bomb-impact')w.damage+=2;if(id==='bomb-pull')w.pull=true;}if(weapon==='aegis'){if(id==='aegis-radius')w.radius=(w.radius||125)+46;if(id==='aegis-power')w.damage+=1.4;if(id==='aegis-drag')w.drag=.55;if(id==='aegis-pulse'){w.pulse=true;w.pulseIn=2.2;}if(id==='aegis-plating')w.plating=true;}if(weapon==='arc'){if(id==='arc-chain')w.chain=(w.chain||1)+1;if(id==='arc-power')w.damage+=2.2;if(id==='arc-rate')w.rate*=1.3;if(id==='arc-reach')w.reach=(w.reach||320)+130;if(id==='arc-overload')w.overload=true;}if(weapon==='sword'){if(id==='sword-reach')w.reach=(w.reach||78)+26;if(id==='sword-spin')w.spin=(w.spin||4)*1.5;if(id==='sword-span')w.reach=(w.reach||78)*1.35;if(id==='sword-sharp')w.damage+=4;if(id==='sword-guard')w.guard=true;}
 }
 const globalInfo={health:['REINFORCED HULL','Maximum health +25 each'],speed:['KINETIC THRUSTERS','Movement speed +18% each'],regen:['NANITE REPAIR','Health regeneration +2/s each'],dash:['SLIPSTREAM COILS','Dash carries you 60% further']};
 const relicInfo={echo:['ECHO PHANTOM','A ghost mirrors your movement and fires with you.'],cloak:['PHASE CLOAK','Press E to phase out for 3 seconds.'],overdrive:['CORE OVERDRIVE','All weapons fire 25% faster.']};
