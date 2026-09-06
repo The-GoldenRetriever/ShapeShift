@@ -14,9 +14,24 @@ const types = {
   diamond: { hp: 3, speed: 92, r: 15, color: '#f36bff', xp: 9, sides: 4 },
   pentagon: { hp: 20, speed: 24, r: 24, color: '#e88bff', xp: 18, sides: 5 },
   prism: { hp: 7, speed: 58, r: 21, color: '#72a8ff', xp: 16, sides: 6 },
-  boss: { hp: 360, speed: 27, r: 52, color: '#ff4f9a', xp: 120, sides: 8 }
+  boss: { hp: 360, speed: 27, r: 52, color: '#ff4f9a', xp: 120, sides: 8 },
+  sentinel: { hp: 360, speed: 27, r: 52, color: '#ff4f9a', xp: 120, sides: 8 },
+  lance:    { hp: 360, speed: 62, r: 40, color: '#ff8a3d', xp: 155, sides: 3 },
+  orbiter:  { hp: 300, speed: 15, r: 56, color: '#8f7dff', xp: 185, sides: 6 },
+  prism:    { hp: 460, speed: 24, r: 46, color: '#5ce0d8', xp: 215, sides: 5 },
+  hollow:   { hp: 420, speed: 19, r: 58, color: '#c14dff', xp: 255, sides: 7 }
 };
-let player, enemies, arrows, enemyBullets, stars, particles, blasts, echoShots, damageNumbers, delayedBlasts, state;
+// one boss per ten rooms, cycling once the roster is exhausted.
+// hpMult trades bulk against how dangerous each one's pattern is.
+const bossOrder = [
+  { id:'sentinel', name:'SENTINEL', hpMult:1,    contact:28, blurb:'Volleys and charges' },
+  { id:'lance',    name:'LANCE',    hpMult:.78,  contact:34, blurb:'Charges hard, seeds homing orbs' },
+  { id:'orbiter',  name:'ORBITER',  hpMult:1.18, contact:26, blurb:'Orbital strikes and a gravity tether' },
+  { id:'prism',    name:'PRISM',    hpMult:.95,  contact:24, blurb:'Sweeping beams, blinks away' },
+  { id:'hollow',   name:'HOLLOW',   hpMult:1.32, contact:30, blurb:'Shields itself, calls escorts, rings' }
+];
+const bossForRoom = room => bossOrder[(Math.max(1,Math.floor(room/10))-1) % bossOrder.length];
+let player, enemies, arrows, enemyBullets, stars, particles, blasts, echoShots, damageNumbers, delayedBlasts, strikes, rings, state;
 // ---- roster -------------------------------------------------------------
 // hp/speed are multipliers on the 100hp / 288px-per-second baseline.
 // `weapon` grants a weapon nobody else can be offered.
@@ -90,7 +105,7 @@ function reset(difficulty = 'medium') {
   const c = characters[chosen] || characters[STARTER];
   const maxHp = Math.round(100 * c.hp);
   player = { x: W / 2, y: H / 2, r: 16, hp: maxHp, maxHp, speed: Math.round(288 * c.speed), regen: 3 + (c.regen || 0), hurtAt: -10, aim: 0, vx: 0, vy: 0 };
-  enemies = []; arrows = []; enemyBullets = []; stars = []; particles = []; blasts = []; delayedBlasts = []; echoShots = []; damageNumbers = [];
+  enemies = []; arrows = []; enemyBullets = []; stars = []; particles = []; blasts = []; delayedBlasts = []; echoShots = []; damageNumbers = []; strikes = []; rings = [];
   state = { difficulty, last: performance.now(), time: 0, room: 1, level: 1, xp: 0, need: 60, kills: 0, left: 0, spawnIn: 0, active: true, paused: false, upgradeOpen: false, intermission: false, transitioning: false, roomTransition: 0, exit: null, relicRooms: {}, globals: {}, relicsTaken: [], relicOpen: false, vacuum: false, beatBest: false, over: false, portalArm: 0, history: [], echo: null, cloakTime: 0, cloakCooldown: 0, bowIn: 0, laserIn: 0, bombIn: 0, dashCooldown: 0, dashTime: 0, dashX: 0, dashY: 0, dashPower: 1, dashCd: 3, arcIn: 0, character: STARTER, charXp: 1, charDamage: 1, lastMoveX: 1, lastMoveY: 0, shake: 0, playerAlpha: 1, screenAlpha: 0, cameraZoom: 1, zoomCenterX: W/2, zoomCenterY: H/2, victoryPortal: null, victorySequence: null, victoryTimer: 0, roomBanner: null, cameraRot: 0, flash: 0, warp: null, suckR: 0, suckA: 0, suckDir: 1, portalCharge: 0, hurtFlash: 0, weapons: { bow: { name: 'LONGBOW', color: '#55e6ff', damage: 2, rate: 1.3, level: 0, upgrades: 0, taken: [], ultimate: false } } };
   state.character=chosen;
   state.charXp=c.xp||1;
@@ -140,11 +155,24 @@ function beginRoom() {
   state.active=true; state.intermission=false; state.exit=null; state.vacuum=false; state.left=bossRoom?0:11+state.room*3; state.spawnIn=.55;
   if(bossRoom) spawnBoss();
   for(let i=0;i<Math.min(8,state.left);i++){spawn();state.left--;}
-  ui.room.textContent=state.room; ui.roomState.textContent=bossRoom?'BOSS CHAMBER':'ROOM HOSTILES INBOUND';
+  ui.room.textContent=state.room; ui.roomState.textContent=bossRoom?bossForRoom(state.room).name+' // '+bossForRoom(state.room).blurb:'ROOM HOSTILES INBOUND';
   recordRoom(state.room);
-  state.roomBanner={room:state.room,life:BANNER_TIME};
+  const bossDef=bossRoom?bossForRoom(state.room):null;
+  state.roomBanner={room:state.room,life:bossRoom?4.2:BANNER_TIME,total:bossRoom?4.2:BANNER_TIME,
+    boss:bossDef?bossDef.name:null,bossNote:bossDef?bossDef.blurb.toUpperCase():null,
+    bossColor:bossDef?types[bossDef.id].color:null};
 }
-function spawnBoss(){const spec=types.boss,difficulty=difficulties[state.difficulty],hp=Math.ceil(spec.hp*difficulty.hp*(1+Math.max(0,state.room-10)*.12));enemies.push({type:'boss',x:W/2,y:150,hp,maxHp:hp,r:spec.r,shoot:1.1,phase:0,flash:0,slowT:0,slowAmt:0,boss:true,rot:0,rotSpeed:.45,born:state.time,numIn:0});}
+function spawnBoss(){
+  const def=bossForRoom(state.room), spec=types[def.id], difficulty=difficulties[state.difficulty];
+  // each full pass through the roster adds a flat bulk bonus, so cycling back
+  // to SENTINEL at room 60 is still tougher than HOLLOW at room 50
+  const cycle=Math.floor((Math.max(1,Math.floor(state.room/10))-1)/bossOrder.length);
+  const hp=Math.ceil(spec.hp*def.hpMult*difficulty.hp*(1+Math.max(0,state.room-10)*.12)*(1+cycle*.75));
+  enemies.push({type:def.id,bossId:def.id,contact:def.contact,x:W/2,y:150,hp,maxHp:hp,r:spec.r,
+    shoot:1.1,phase:0,flash:0,slowT:0,slowAmt:0,boss:true,rot:0,rotSpeed:.45,born:state.time,numIn:0,
+    mode:'idle',timer:1.2,beamRot:0,shield:0,adds:0,blinkT:0});
+  state.bossName=def.name;
+}
 function nearest() {
   let best=null, bestD=Infinity;
   for(const e of enemies){const d=dist(player,e);if(d<bestD){best=e;bestD=d;}}
@@ -319,31 +347,180 @@ function update(dt) {
   if(state.active&&state.left>0){state.spawnIn-=dt;if(state.spawnIn<=0){spawn();state.left--;state.spawnIn=Math.max(.2,.62-state.room*.02);}}
   state.bowIn-=dt;if(state.bowIn<=0){fire();state.bowIn=1/state.weapons.bow.rate;}
   for(const e of enemies) moveEnemy(e,dt);
-  weapons(dt); updateArrows(dt); updateEchoShots(dt); updateEnemyBullets(dt); updateStars(dt); deaths(); updateParticles(dt); updateBlasts(dt); updateDelayedBlasts(dt); updateDamageNumbers(dt);
+  weapons(dt); updateArrows(dt); updateEchoShots(dt); updateEnemyBullets(dt); updateStars(dt); deaths(); updateParticles(dt); updateBlasts(dt); updateDelayedBlasts(dt); updateStrikes(dt); updateRings(dt); updateDamageNumbers(dt);
   if(state.active&&state.left===0&&enemies.length===0) finishRoom();
   if(player.hp<=0) gameOver();
   hud();
 }
 const pilotColor=()=>((state&&characters[state.character])||characters[STARTER]).color;
+// ---- boss patterns ------------------------------------------------------
+const bossStep=(e,dt,mult,difficulty,ang0)=>{
+  const s=types[e.type].speed*mult*difficulty.speed*MOVE*slowFactor(e);
+  e.x=clamp(e.x+Math.cos(ang0)*s*dt,e.r,W-e.r);
+  e.y=clamp(e.y+Math.sin(ang0)*s*dt,e.r,H-e.r);
+};
+function bossOrb(e,angle,speed,damage){
+  enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,r:9,life:9,
+    damage,homing:1,turn:1.5,color:'#ffb066',keep:true});
+}
+const bossBehaviour={
+  // room 10 — the baseline: pressure with volleys, closes with charges
+  sentinel(e,dt,difficulty,spec,a){
+    e.dashCooldown=(e.dashCooldown||0)-dt;
+    e.dashTime=(e.dashTime||0)-dt;
+    if(e.dashCooldown<=0&&e.dashTime<=0){e.dashTime=.3;e.dashCooldown=3+rand(0,2);}
+    if(e.dashTime>0){bossStep(e,dt,5,difficulty,a);burst(e.x,e.y,spec.color,2,100);}
+    else bossStep(e,dt,1,difficulty,a);
+  },
+  // room 20 — fast pursuer. Winds up visibly, then commits to a straight charge:
+  // the tell is the window to time your own dash. Pauses to seed homing orbs.
+  lance(e,dt,difficulty,spec,a){
+    e.timer-=dt;
+    if(e.mode==='idle'||e.mode==='pursue'){
+      bossStep(e,dt,1,difficulty,a);
+      if(e.timer<=0){
+        if(Math.random()<.32){e.mode='volley';e.timer=1.25;}
+        else{e.mode='windup';e.timer=.55;e.lockA=a;}
+      }
+    }else if(e.mode==='windup'){
+      let d=a-e.lockA;while(d<-Math.PI)d+=Math.PI*2;while(d>Math.PI)d-=Math.PI*2;
+      e.lockA+=d*Math.min(1,dt*1.6); // tracks slowly, so the charge can be juked
+      e.flash=Math.max(e.flash,.06);
+      if(e.timer<=0){e.mode='charge';e.timer=.42;burst(e.x,e.y,spec.color,18,240,{size:3,drag:2});shake(5);}
+    }else if(e.mode==='charge'){
+      bossStep(e,dt,9,difficulty,e.lockA);
+      burst(e.x,e.y,spec.color,3,140,{size:2.6,drag:3});
+      if(e.timer<=0){e.mode='recover';e.timer=.6;}
+    }else if(e.mode==='recover'){
+      if(e.timer<=0){e.mode='pursue';e.timer=rand(.7,1.5);}
+    }else if(e.mode==='volley'){
+      if(!e.fired&&e.timer<.85){
+        e.fired=true;
+        for(let i=0;i<5;i++)bossOrb(e,a+(i-2)*.42,120*difficulty.speed,14*difficulty.speed);
+        shake(4);
+      }
+      if(e.timer<=0){e.mode='pursue';e.timer=rand(.6,1.2);e.fired=false;}
+    }
+  },
+  // room 30 — keeps its distance and rains telegraphed strikes. Stray too far
+  // and it tethers you back in, so you cannot outrun the bombardment.
+  orbiter(e,dt,difficulty,spec,a){
+    const d=dist(e,player);
+    if(d<340) bossStep(e,dt,1,difficulty,a+Math.PI);
+    else if(d>620) bossStep(e,dt,.7,difficulty,a);
+    else bossStep(e,dt,.5,difficulty,a+Math.PI/2);
+    e.timer-=dt;
+    if(e.timer<=0){
+      const n=2+Math.floor(Math.random()*2);
+      for(let i=0;i<n;i++){
+        const lead=i===0?0:rand(60,190), la=Math.random()*Math.PI*2;
+        strikes.push({x:clamp(player.x+Math.cos(la)*lead,40,W-40),y:clamp(player.y+Math.sin(la)*lead,50,H-40),
+          r:78,timer:1.15,maxTimer:1.15,damage:24*difficulty.speed,color:spec.color});
+      }
+      e.timer=rand(1.3,1.9);
+    }
+    e.tether=d>430;
+    if(e.tether&&state.dashTime<=0){
+      const pull=(d-430)/d*.9*dt*60;
+      player.x=clamp(player.x+(e.x-player.x)/d*pull,45,W-45);
+      player.y=clamp(player.y+(e.y-player.y)/d*pull,65,H-45);
+    }
+  },
+  // room 40 — a lighthouse. Rotating beams deny space; it blinks when cornered.
+  prism(e,dt,difficulty,spec,a){
+    e.beamRot+=dt*.85*difficulty.speed;
+    e.blinkT-=dt;
+    if(e.blinkT<=0){
+      e.blinkFade=.45;
+      e.x=clamp(rand(200,W-200),e.r,W-e.r);
+      e.y=clamp(rand(160,H-200),e.r,H-e.r);
+      burst(e.x,e.y,spec.color,26,260,{size:3,drag:2.4});
+      e.blinkT=rand(4.5,6.5);
+    }
+    e.blinkFade=Math.max(0,(e.blinkFade||0)-dt);
+    bossStep(e,dt,.5,difficulty,a);
+    const reach=330, half=.13;
+    for(let i=0;i<3;i++){
+      const ba=e.beamRot+i*Math.PI*2/3;
+      const rel=Math.atan2(player.y-e.y,player.x-e.x)-ba;
+      const norm=Math.atan2(Math.sin(rel),Math.cos(rel));
+      const pd=dist(e,player);
+      if(Math.abs(norm)<half&&pd<reach&&pd>e.r&&state.dashTime<=0&&(e.beamHit||0)<=0){
+        hurt(20*difficulty.speed);e.beamHit=.7;
+      }
+    }
+    e.beamHit=(e.beamHit||0)-dt;
+  },
+  // room 50 — cycles between an escorted shield phase and a vulnerable phase
+  // that pays for the opening with expanding shockwaves.
+  hollow(e,dt,difficulty,spec,a){
+    bossStep(e,dt,1,difficulty,a);
+    e.timer-=dt;
+    const escorts=enemies.filter(x=>x.escortOf===e).length;
+    if(e.mode==='idle'){e.mode='shield';e.timer=0;}
+    if(e.mode==='shield'){
+      e.shield=1;
+      if(e.adds<3&&e.timer<=0){
+        const p=edge();
+        const add=spawnAt('diamond',p.x,p.y);
+        if(add){add.escortOf=e;add.rotSpeed=2;e.adds++;}
+        e.timer=.5;
+      }
+      if(e.adds>=3&&escorts===0){
+        e.mode='open';e.timer=6;e.adds=0;e.shield=0;e.ringIn=.4;
+        burst(e.x,e.y,'#ffffff',30,300,{size:3,drag:2.5});shake(9);
+      }
+    }else if(e.mode==='open'){
+      e.shield=0;
+      e.ringIn=(e.ringIn||0)-dt;
+      if(e.ringIn<=0){
+        rings.push({x:e.x,y:e.y,r:e.r,speed:340*difficulty.speed,damage:22*difficulty.speed,life:2.2,color:spec.color});
+        e.ringIn=1.5;
+      }
+      if(e.timer<=0){e.mode='shield';e.timer=0;e.adds=0;}
+    }
+  }
+};
+function spawnAt(name,x,y){
+  const spec=types[name];if(!spec)return null;
+  const difficulty=difficulties[state.difficulty];
+  const hp=Math.max(1,Math.ceil(spec.hp*1.1*difficulty.hp*(1+(state.room-1)*.035)));
+  const e={type:name,x,y,hp,maxHp:hp,r:spec.r,shoot:rand(1,3),phase:Math.random()*7,flash:0,slowT:0,slowAmt:0,
+    rot:Math.random()*7,rotSpeed:rand(-1.1,1.1),born:state.time,numIn:0};
+  enemies.push(e);
+  return e;
+}
+// telegraphed ground strikes: a reticle you are given time to leave
+function updateStrikes(dt){
+  for(const s of strikes){
+    s.timer-=dt;
+    if(s.timer<=0&&!s.done){
+      s.done=true;
+      if(state.dashTime<=0&&dist(player,s)<s.r+player.r)hurt(s.damage);
+      blasts.push({x:s.x,y:s.y,radius:s.r,life:.42,maxLife:.42,color:s.color});
+      burst(s.x,s.y,s.color,22,260,{size:3,drag:2.6});
+      shake(7);
+    }
+  }
+  strikes=strikes.filter(s=>!s.done);
+}
+// expanding shockwave rings: damage lives at the ring edge, so dash through it
+function updateRings(dt){
+  for(const r of rings){
+    r.r+=r.speed*dt;r.life-=dt;
+    if(!r.hit&&state.dashTime<=0){
+      const d=dist(player,r);
+      if(Math.abs(d-r.r)<player.r+14){r.hit=true;hurt(r.damage);}
+    }
+  }
+  rings=rings.filter(r=>r.life>0&&r.r<Math.hypot(W,H));
+}
 const slowFactor=e=>e.slowT>0?1-(e.slowAmt||0):1;
 function moveEnemy(e,dt) {
   const difficulty=difficulties[state.difficulty], spec=types[e.type], a=ang(e,player)+(e.type==='bowtie'?Math.sin(state.time*5+e.phase)*.75:0);
 
   if(e.boss){
-    e.dashCooldown=(e.dashCooldown||0)-dt;
-    e.dashTime=(e.dashTime||0)-dt;
-    if(e.dashCooldown<=0 && e.dashTime<=0){
-      e.dashTime=0.3;
-      e.dashCooldown=3+rand(0,2);
-    }
-    if(e.dashTime>0){
-      const dashSpeed=spec.speed*5*difficulty.speed*MOVE*slowFactor(e);
-      e.x+=Math.cos(a)*dashSpeed*dt;e.y+=Math.sin(a)*dashSpeed*dt;
-      burst(e.x,e.y,spec.color,2,100);
-    }else{
-      const s=spec.speed*difficulty.speed*MOVE*slowFactor(e);
-      e.x+=Math.cos(a)*s*dt;e.y+=Math.sin(a)*s*dt;
-    }
+    (bossBehaviour[e.bossId]||bossBehaviour.sentinel)(e,dt,difficulty,spec,a);
   }else{
     const s=spec.speed*difficulty.speed*MOVE*slowFactor(e);
     e.x+=Math.cos(a)*s*dt;e.y+=Math.sin(a)*s*dt;
@@ -354,9 +531,9 @@ function moveEnemy(e,dt) {
   e.numIn=(e.numIn||0)-dt;
   e.slowT=Math.max(0,(e.slowT||0)-dt);
   e.touch=(e.touch||0)-dt;
-  if(dist(e,player)<e.r+player.r&&e.touch<=0){if(state.dashTime<=0){const baseDamage=e.boss?28:10+spec.hp*1.5+(spec.speed>=60?5:0),damage=baseDamage*(1+(state.room-1)*.025)*difficulty.speed*(state.weapons.sword?.guard?.7:1)*(state.weapons.aegis?.plating?.75:1);const lethal=!e.boss&&(state.difficulty==='hard'||state.difficulty==='impossible')&&(e.type==='trap'||e.type==='pentagon');hurt(lethal?player.hp:damage);if(!e.boss){e.hp=0;spawnDamageNumber(e.x,e.y,999,'#fff');shake(4);}}e.touch=.55;burst(e.x,e.y,spec.color,10,110);}
+  if(dist(e,player)<e.r+player.r&&e.touch<=0){if(state.dashTime<=0){const baseDamage=e.boss?(e.contact||28):10+spec.hp*1.5+(spec.speed>=60?5:0),damage=baseDamage*(1+(state.room-1)*.025)*difficulty.speed*(state.weapons.sword?.guard?.7:1)*(state.weapons.aegis?.plating?.75:1);const lethal=!e.boss&&(state.difficulty==='hard'||state.difficulty==='impossible')&&(e.type==='trap'||e.type==='pentagon');hurt(lethal?player.hp:damage);if(!e.boss){e.hp=0;spawnDamageNumber(e.x,e.y,999,'#fff');shake(4);}}e.touch=.55;burst(e.x,e.y,spec.color,10,110);}
   e.shoot-=dt;
-  if((e.type==='bowtie'||e.boss)&&e.shoot<=0){const b=ang(e,player),shots=e.boss?[-.24,-.12,0,.12,.24]:[0];for(const offset of shots)enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(b+offset)*(e.boss?282:224),vy:Math.sin(b+offset)*(e.boss?282:224),r:e.boss?7:5,life:4,damage:(e.boss?16:8+state.room*.5)*difficulty.speed});e.shoot=e.boss?1.15:rand(2,3.4);}
+  if((e.type==='bowtie'||e.bossId==='sentinel')&&e.shoot<=0){const b=ang(e,player),boss=e.bossId==='sentinel',shots=boss?[-.24,-.12,0,.12,.24]:[0];for(const offset of shots)enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(b+offset)*(boss?282:224),vy:Math.sin(b+offset)*(boss?282:224),r:boss?7:5,life:4,damage:(boss?16:8+state.room*.5)*difficulty.speed});e.shoot=boss?1.15:rand(2,3.4);}
 }
 function weapons(dt) {
   if(state.weapons.laser){
@@ -490,8 +667,18 @@ function updateArrows(dt) {
 }
 function updateEchoShots(dt){for(const s of echoShots){s.x+=s.vx*dt;s.y+=s.vy*dt;s.life-=dt;for(const e of enemies)if(s.life>0&&dist(s,e)<e.r+6){e.hp-=s.damage;e.flash=.12;spawnDamageNumber(e.x,e.y,Math.ceil(s.damage),s.color);s.life=0;burst(s.x,s.y,'#a6d8ff',5,80);}}echoShots=echoShots.filter(s=>s.life>0&&s.x>0&&s.x<W&&s.y>0&&s.y<H);}
 function updateEnemyBullets(dt) {
-  for(const b of enemyBullets){b.x+=b.vx*dt;b.y+=b.vy*dt;b.life-=dt;if(state.dashTime<=0&&dist(b,player)<b.r+player.r){hurt(b.damage||10);b.life=0;burst(player.x,player.y,'#ff6387',8,80);}}
-  enemyBullets=enemyBullets.filter(b=>b.life>0&&b.x>0&&b.x<W&&b.y>0&&b.y<H);
+  for(const b of enemyBullets){
+    if(b.homing){
+      const want=ang(b,player), sp=Math.hypot(b.vx,b.vy);
+      let cur=Math.atan2(b.vy,b.vx), diff=want-cur;
+      while(diff<-Math.PI)diff+=Math.PI*2;while(diff>Math.PI)diff-=Math.PI*2;
+      cur+=clamp(diff,-(b.turn||1.5)*dt,(b.turn||1.5)*dt);
+      b.vx=Math.cos(cur)*sp;b.vy=Math.sin(cur)*sp;
+    }
+    b.x+=b.vx*dt;b.y+=b.vy*dt;b.life-=dt;
+    if(state.dashTime<=0&&dist(b,player)<b.r+player.r){hurt(b.damage||10);b.life=0;burst(player.x,player.y,'#ff6387',8,80);}
+  }
+  enemyBullets=enemyBullets.filter(b=>b.life>0&&(b.keep||(b.x>0&&b.x<W&&b.y>0&&b.y<H)));
 }
 function updateStars(dt) {
   for(const s of stars){s.spin+=dt*5;const d=dist(s,player);const k=state.vacuum?17:d<250?12:0;if(k){s.x+=(player.x-s.x)*dt*k;s.y+=(player.y-s.y)*dt*k;}if(d<32){state.xp+=s.value;s.dead=true;burst(s.x,s.y,'#ffe17a',9,130,{size:2.2,drag:5});}}
@@ -499,6 +686,7 @@ function updateStars(dt) {
 }
 function xpValue(spec){const difficultyBonus=state.difficulty==='impossible'?1.25:state.difficulty==='hard'?1.1:state.difficulty==='easy'?.95:1;const healthBonus=1+Math.max(0,spec.hp-1)*.03;const speedBonus=spec.speed>=60?1.08:1;return Math.max(1,Math.round(spec.xp*healthBonus*speedBonus*difficultyBonus*(state.charXp||1)));}
 function deaths(){
+  for(const e of enemies)if(e.shield&&e.hp<e.maxHp*.999)e.hp=Math.max(e.hp,1);
   const alive=[];
   for(const e of enemies){
     if(e.hp>0){alive.push(e);continue;}
@@ -525,7 +713,7 @@ function updateDelayedBlasts(dt){for(const b of delayedBlasts){b.timer-=dt;if(b.
 function finishRoom(){
   if(state.exit||state.transitioning||state.victoryPortal)return;
   state.active=false;state.intermission=true;
-  enemyBullets.length=0;   // the room is won; no dying to a stray shot afterwards
+  enemyBullets.length=0;strikes.length=0;rings.length=0;   // the room is won; no dying to a stray shot afterwards
   state.vacuum=true;       // and sweep up every remnant you earned
   if(state.room%10===0&&!state.relicRooms[state.room]){showRelics();return;}
   openPortal();
@@ -744,34 +932,50 @@ const grand=n=>{const x=Math.sin(n*127.1+311.7)*43758.5453;return x-Math.floor(x
 let bannerLayer=null;
 function drawRoomBanner(){
   const b=state.roomBanner;if(!b||b.life<=0)return;
-  const t=BANNER_TIME-b.life;
+  const total=b.total||BANNER_TIME;
+  const t=total-b.life;
   const fade=b.life>.8?1:b.life/.8;
   const intro=Math.min(1,t/.28);
   const step=Math.floor(t*20);
   const heat=.2+(1-intro)*1.7+(1-fade)*1.5+(grand(step*3.7)>.87?1:0);
-  const text='ROOM '+b.room;
-  const LW=W, LH=150;
+  const LW=W, LH=250, MAIN_Y=75;
   if(!bannerLayer){bannerLayer=document.createElement('canvas');bannerLayer.width=LW;bannerLayer.height=LH;}
   const g=bannerLayer.getContext('2d');
   g.clearRect(0,0,LW,LH);
   g.textAlign='center';g.textBaseline='middle';
-  g.font="700 66px 'Space Grotesk',sans-serif";
-  const cx=LW/2,cy=LH/2;
-  const jx=(grand(step)*2-1)*11*heat,jy=(grand(step+91)*2-1)*3.5*heat;
-  g.globalCompositeOperation='lighter';
-  g.globalAlpha=.85;
-  g.fillStyle='#ff557d';g.fillText(text,cx+jx,cy+jy);
-  g.fillStyle='#55e6ff';g.fillText(text,cx-jx,cy-jy);
-  g.globalCompositeOperation='source-over';
-  g.globalAlpha=grand(step+7)>.94?.3:1;
-  g.shadowColor='#55e6ff';g.shadowBlur=26;g.fillStyle='#eff4ff';
-  g.fillText(text,cx,cy);
-  g.shadowBlur=0;g.globalAlpha=1;
+  const cx=LW/2;
+  const jx=(grand(step)*2-1)*11*heat, jy=(grand(step+91)*2-1)*3.5*heat;
+  // one glitched line: pink/cyan channel split under a bright core
+  const line=(text,y,size,tint,split,alpha)=>{
+    g.font="700 "+size+"px 'Space Grotesk',sans-serif";
+    g.globalCompositeOperation='lighter';
+    g.globalAlpha=.85*alpha;
+    g.fillStyle='#ff557d';g.fillText(text,cx+jx*split,y+jy*split);
+    g.fillStyle=tint;g.fillText(text,cx-jx*split,y-jy*split);
+    g.globalCompositeOperation='source-over';
+    g.globalAlpha=(grand(step+7)>.94?.3:1)*alpha;
+    g.shadowColor=tint;g.shadowBlur=26*split;
+    g.fillStyle='#eff4ff';g.fillText(text,cx,y);
+    g.shadowBlur=0;g.globalAlpha=1;
+  };
+  line('ROOM '+b.room,MAIN_Y,66,'#55e6ff',1,1);
+  if(b.boss){
+    // the boss announces itself under the room number, in its own colour
+    const reveal=clamp((t-.22)/.3,0,1);
+    if(reveal>0){
+      line(b.boss,MAIN_Y+62,34,b.bossColor||'#ff4f9a',.7,reveal);
+      g.globalAlpha=reveal*.75;
+      g.font="500 13px 'DM Mono', monospace";
+      g.fillStyle=b.bossColor||'#ff4f9a';
+      g.fillText(b.bossNote||'',cx,MAIN_Y+100);
+      g.globalAlpha=1;
+    }
+  }
   g.globalCompositeOperation='destination-out';
   g.fillStyle='rgba(0,0,0,.5)';
   for(let y=0;y<LH;y+=4)g.fillRect(0,y,LW,1);
   g.globalCompositeOperation='source-over';
-  const top=Math.round(H*.165-LH/2), band=5;
+  const top=Math.round(H*.165-MAIN_Y), band=5;
   ctx.save();
   ctx.globalAlpha=fade;
   for(let y=0;y<LH;y+=band){
@@ -877,7 +1081,7 @@ function draw(){
     ctx.translate(-state.zoomCenterX,-state.zoomCenterY);
   }
   drawBackground();
-  drawStars();drawEnemies();drawProjectiles();drawBlasts();drawParticles();drawEcho();drawPortal();drawPlayer();drawWeaponEffects();drawDamageNumbers();
+  drawStrikes();drawStars();drawEnemies();drawBossArt();drawProjectiles();drawRings();drawBlasts();drawParticles();drawEcho();drawPortal();drawPlayer();drawWeaponEffects();drawDamageNumbers();
   ctx.restore();
   drawVignette();
   if(state.hurtFlash>0){
@@ -1048,6 +1252,96 @@ function drawProjectiles(){
     ctx.restore();
   }
   ctx.restore();
+}
+// ground reticles fill up as the strike closes in, so the wind-up is readable
+function drawStrikes(){
+  for(const s of strikes){
+    const k=clamp(1-s.timer/s.maxTimer,0,1);
+    ctx.save();
+    ctx.globalCompositeOperation='lighter';
+    ctx.globalAlpha=.1+k*.16;
+    ctx.fillStyle=s.color;
+    ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,7);ctx.fill();
+    ctx.globalAlpha=.55+k*.45;
+    ctx.strokeStyle=s.color;ctx.lineWidth=2+k*2;
+    ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,7);ctx.stroke();
+    ctx.globalAlpha=.85;
+    ctx.beginPath();ctx.arc(s.x,s.y,s.r*k,0,7);ctx.stroke();
+    ctx.lineWidth=1.6;ctx.globalAlpha=.5;
+    for(let i=0;i<4;i++){
+      const a=i*Math.PI/2+k*1.2;
+      ctx.beginPath();
+      ctx.moveTo(s.x+Math.cos(a)*(s.r-12),s.y+Math.sin(a)*(s.r-12));
+      ctx.lineTo(s.x+Math.cos(a)*(s.r+9),s.y+Math.sin(a)*(s.r+9));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+function drawRings(){
+  for(const r of rings){
+    ctx.save();
+    ctx.globalCompositeOperation='lighter';
+    ctx.globalAlpha=clamp(r.life/2.2,0,1)*.9;
+    ctx.strokeStyle=r.color;ctx.shadowColor=r.color;ctx.shadowBlur=18;ctx.lineWidth=9;
+    ctx.beginPath();ctx.arc(r.x,r.y,r.r,0,7);ctx.stroke();
+    ctx.shadowBlur=0;ctx.globalAlpha*=.8;ctx.strokeStyle='#ffffff';ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(r.x,r.y,r.r,0,7);ctx.stroke();
+    ctx.restore();
+  }
+}
+// per-boss flourishes drawn over the enemy layer
+function drawBossArt(){
+  for(const e of enemies){
+    if(!e.boss)continue;
+    const spec=types[e.type];
+    ctx.save();
+    ctx.globalCompositeOperation='lighter';
+    if(e.bossId==='lance'&&e.mode==='windup'){
+      // the charge tell: a lane you have to be out of
+      const len=520;
+      ctx.globalAlpha=.28+Math.sin(state.time*30)*.12;
+      ctx.strokeStyle=spec.color;ctx.lineWidth=e.r*1.3;
+      ctx.beginPath();ctx.moveTo(e.x,e.y);
+      ctx.lineTo(e.x+Math.cos(e.lockA)*len,e.y+Math.sin(e.lockA)*len);ctx.stroke();
+      ctx.globalAlpha=.9;ctx.lineWidth=2;
+      ctx.beginPath();ctx.moveTo(e.x,e.y);
+      ctx.lineTo(e.x+Math.cos(e.lockA)*len,e.y+Math.sin(e.lockA)*len);ctx.stroke();
+    }
+    if(e.bossId==='orbiter'&&e.tether){
+      ctx.globalAlpha=.45+Math.sin(state.time*9)*.2;
+      ctx.strokeStyle=spec.color;ctx.lineWidth=3;ctx.setLineDash([12,9]);
+      ctx.lineDashOffset=-state.time*70;
+      ctx.beginPath();ctx.moveTo(e.x,e.y);ctx.lineTo(player.x,player.y);ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    if(e.bossId==='prism'){
+      const reach=330;
+      for(let i=0;i<3;i++){
+        const ba=e.beamRot+i*Math.PI*2/3;
+        const g=ctx.createLinearGradient(e.x,e.y,e.x+Math.cos(ba)*reach,e.y+Math.sin(ba)*reach);
+        g.addColorStop(0,rgba(spec.color,.65));
+        g.addColorStop(1,rgba(spec.color,0));
+        ctx.globalAlpha=1;ctx.strokeStyle=g;ctx.lineWidth=13;
+        ctx.beginPath();ctx.moveTo(e.x,e.y);ctx.lineTo(e.x+Math.cos(ba)*reach,e.y+Math.sin(ba)*reach);ctx.stroke();
+        ctx.strokeStyle=rgba('#ffffff',.6);ctx.lineWidth=2;
+        ctx.beginPath();ctx.moveTo(e.x,e.y);ctx.lineTo(e.x+Math.cos(ba)*reach,e.y+Math.sin(ba)*reach);ctx.stroke();
+      }
+    }
+    if(e.bossId==='hollow'&&e.shield){
+      ctx.globalAlpha=.35+Math.sin(state.time*4)*.12;
+      ctx.strokeStyle='#ffffff';ctx.lineWidth=4;
+      ctx.beginPath();ctx.arc(e.x,e.y,e.r+18,0,7);ctx.stroke();
+      ctx.globalAlpha=.16;ctx.fillStyle=spec.color;
+      ctx.beginPath();ctx.arc(e.x,e.y,e.r+18,0,7);ctx.fill();
+      for(const add of enemies){
+        if(add.escortOf!==e)continue;
+        ctx.globalAlpha=.3;ctx.strokeStyle=spec.color;ctx.lineWidth=1.6;
+        ctx.beginPath();ctx.moveTo(e.x,e.y);ctx.lineTo(add.x,add.y);ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
 }
 function drawBlasts(){
   for(const b of blasts){
