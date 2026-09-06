@@ -18,7 +18,7 @@ const types = {
   sentinel: { hp: 360, speed: 27, r: 52, color: '#ff4f9a', xp: 120, sides: 8 },
   lance:    { hp: 360, speed: 62, r: 40, color: '#ff8a3d', xp: 155, sides: 3 },
   orbiter:  { hp: 300, speed: 15, r: 56, color: '#8f7dff', xp: 185, sides: 6 },
-  prism:    { hp: 460, speed: 24, r: 46, color: '#5ce0d8', xp: 215, sides: 5 },
+  beacon:   { hp: 460, speed: 24, r: 46, color: '#5ce0d8', xp: 215, sides: 5 },
   hollow:   { hp: 420, speed: 19, r: 58, color: '#c14dff', xp: 255, sides: 7 }
 };
 // one boss per ten rooms, cycling once the roster is exhausted.
@@ -27,8 +27,8 @@ const bossOrder = [
   { id:'sentinel', name:'SENTINEL', hpMult:1,    contact:28, blurb:'Volleys and charges' },
   { id:'lance',    name:'LANCE',    hpMult:.78,  contact:34, blurb:'Charges hard, seeds homing orbs' },
   { id:'orbiter',  name:'ORBITER',  hpMult:1.18, contact:26, blurb:'Orbital strikes and a gravity tether' },
-  { id:'prism',    name:'PRISM',    hpMult:.95,  contact:24, blurb:'Sweeping beams, blinks away' },
-  { id:'hollow',   name:'HOLLOW',   hpMult:1.32, contact:30, blurb:'Shields itself, calls escorts, rings' }
+  { id:'beacon',   name:'BEACON',   hpMult:.95,  contact:24, blurb:'Sweeping beams, blinks away' },
+  { id:'hollow',   name:'HOLLOW',   hpMult:.95,  contact:30, blurb:'Shields itself, calls escorts, rings' }
 ];
 const bossForRoom = room => bossOrder[(Math.max(1,Math.floor(room/10))-1) % bossOrder.length];
 let player, enemies, arrows, enemyBullets, stars, particles, blasts, echoShots, damageNumbers, delayedBlasts, strikes, rings, state;
@@ -69,7 +69,7 @@ const creditRate=d=>(difficulties[d]||difficulties.medium).credits;
 const roomCreditBonus=room=>Math.min(8,Math.pow(1.045,Math.max(0,room-1)));
 // nothing banks until you are past room 5, so bailing out early cannot be farmed
 const CREDIT_MIN_ROOM=6;
-const runReward=()=>state.room<CREDIT_MIN_ROOM?0:Math.max(1,Math.round((state.room*6*roomCreditBonus(state.room)+state.kills*.3)*creditRate(state.difficulty)));
+const runReward=()=>state.room<CREDIT_MIN_ROOM?0:Math.max(1,Math.round((state.room*1.5*roomCreditBonus(state.room)+state.kills*.05)*creditRate(state.difficulty)));
 // the footer tracks the best room ever reached, overtaken live by the current run
 function recordRoom(room){
   if(room<=highscore)return;
@@ -88,7 +88,16 @@ function toast(msg){
   clearTimeout(toastTimer);
   toastTimer=setTimeout(()=>ui.toast.classList.remove('show'),2400);
 }
-const difficulties = { easy: { label: 'EASY', hp: .86, speed: .88, credits: .7, note: 'Relaxed enemy stats' }, medium: { label: 'MEDIUM', hp: 1, speed: 1, credits: 1, note: 'Standard enemy stats' }, hard: { label: 'HARD', hp: 1.28, speed: 1.2, credits: 1.75, note: 'Fast, reinforced enemies' }, impossible: { label: 'IMPOSSIBLE', hp: 3, speed: 1.8, credits: 3, note: 'Absolute carnage. Good luck.' } };
+const difficulties = {
+  easy:       { label: 'EASY',       hp: .86, speed: .88, dmg: .85, heavy: 1.15, credits: .7,  note: 'Relaxed enemy stats' },
+  medium:     { label: 'MEDIUM',     hp: 1,   speed: 1,   dmg: 1,   heavy: 1.3,  credits: 1,   note: 'Standard enemy stats' },
+  hard:       { label: 'HARD',       hp: 1.28,speed: 1.2, dmg: 1.35,heavy: 2.2,  credits: 1.75,note: 'Fast, reinforced enemies' },
+  impossible: { label: 'IMPOSSIBLE', hp: 3,   speed: 1.8, dmg: 2,   heavy: 2.2,  credits: 3,   note: 'Absolute carnage. Good luck.' }
+};
+// heavy shapes hit far harder than the rest, but nothing one-shots you:
+// a single contact can never take more than this share of your hull.
+const CONTACT_CAP = .7;
+const HEAVY_SHAPES = ['trap','pentagon'];
 
 function resize() {
   // capped at 1.75 rather than 2: the arena grew 44%, this keeps the backing
@@ -167,7 +176,7 @@ function spawnBoss(){
   // each full pass through the roster adds a flat bulk bonus, so cycling back
   // to SENTINEL at room 60 is still tougher than HOLLOW at room 50
   const cycle=Math.floor((Math.max(1,Math.floor(state.room/10))-1)/bossOrder.length);
-  const hp=Math.ceil(spec.hp*def.hpMult*difficulty.hp*(1+Math.max(0,state.room-10)*.12)*(1+cycle*.75));
+  const hp=Math.ceil(spec.hp*def.hpMult*difficulty.hp*(1+Math.max(0,state.room-10)*.085)*(1+cycle*.75));
   enemies.push({type:def.id,bossId:def.id,contact:def.contact,x:W/2,y:150,hp,maxHp:hp,r:spec.r,
     shoot:1.1,phase:0,flash:0,slowT:0,slowAmt:0,boss:true,rot:0,rotSpeed:.45,born:state.time,numIn:0,
     mode:'idle',timer:1.2,beamRot:0,shield:0,adds:0,blinkT:0});
@@ -181,8 +190,23 @@ function nearest() {
 function fire() {
   const target=nearest(); if(!target)return;
   player.aim=ang(player,target); const w=state.weapons.bow;
-  const shotCount=(w.shots||1)+(w.ultimate?2:0), offsets=shotCount>1?Array.from({length:shotCount},(_,i)=>(i-(shotCount-1)/2)*.15):[0];
-  for(const o of offsets){const a=player.aim+o;arrows.push({x:player.x+Math.cos(a)*27,y:player.y+Math.sin(a)*27,vx:Math.cos(a)*(w.projectileSpeed||620),vy:Math.sin(a)*(w.projectileSpeed||620),life:1.6,damage:w.damage,pierce:(w.pierce||0)+(w.ultimate?1:0),color:w.color,homing:w.homing?1:0});}
+  const shotCount=(w.shots||1)+(w.ultimate?2:0), speed=w.projectileSpeed||620;
+  const perp=player.aim+Math.PI/2;
+  for(let i=0;i<shotCount;i++){
+    // fan the volley: angled apart AND offset sideways, so a multishot leaves
+    // the bow as separate arrows rather than one stacked line
+    const lane=shotCount>1?i-(shotCount-1)/2:0;
+    const a=player.aim+lane*.15;
+    arrows.push({
+      x:player.x+Math.cos(a)*27+Math.cos(perp)*lane*11,
+      y:player.y+Math.sin(a)*27+Math.sin(perp)*lane*11,
+      vx:Math.cos(a)*speed,vy:Math.sin(a)*speed,
+      life:1.6,damage:w.damage,pierce:(w.pierce||0)+(w.ultimate?1:0),color:w.color,
+      homing:w.homing?1:0,
+      homeIn:.09,        // flies straight first, so the volley spreads before it steers
+      lane:lane*.16      // each arrow curves in on its own line, closing well before impact
+    });
+  }
   burst(player.x+Math.cos(player.aim)*28,player.y+Math.sin(player.aim)*28,w.color,4,70,{size:2,drag:6});
 }
 function hurt(n){if(state.cloakTime>0)return;player.hp=Math.max(0,player.hp-n);player.hurtAt=state.time;player.flash=0.1;state.hurtFlash=Math.min(1,(state.hurtFlash||0)+clamp(n/45,.3,1));burst(player.x,player.y,'#ff557d',10,150,{size:2.6,drag:4,spread:player.r});shake(12);}
@@ -396,7 +420,7 @@ const bossBehaviour={
     }else if(e.mode==='volley'){
       if(!e.fired&&e.timer<.85){
         e.fired=true;
-        for(let i=0;i<5;i++)bossOrb(e,a+(i-2)*.42,120*difficulty.speed,14*difficulty.speed);
+        for(let i=0;i<5;i++)bossOrb(e,a+(i-2)*.42,120*difficulty.speed,14*difficulty.dmg);
         shake(4);
       }
       if(e.timer<=0){e.mode='pursue';e.timer=rand(.6,1.2);e.fired=false;}
@@ -415,7 +439,7 @@ const bossBehaviour={
       for(let i=0;i<n;i++){
         const lead=i===0?0:rand(60,190), la=Math.random()*Math.PI*2;
         strikes.push({x:clamp(player.x+Math.cos(la)*lead,40,W-40),y:clamp(player.y+Math.sin(la)*lead,50,H-40),
-          r:78,timer:1.15,maxTimer:1.15,damage:24*difficulty.speed,color:spec.color});
+          r:78,timer:1.15,maxTimer:1.15,damage:24*difficulty.dmg,color:spec.color});
       }
       e.timer=rand(1.3,1.9);
     }
@@ -427,7 +451,7 @@ const bossBehaviour={
     }
   },
   // room 40 — a lighthouse. Rotating beams deny space; it blinks when cornered.
-  prism(e,dt,difficulty,spec,a){
+  beacon(e,dt,difficulty,spec,a){
     e.beamRot+=dt*.85*difficulty.speed;
     e.blinkT-=dt;
     if(e.blinkT<=0){
@@ -446,7 +470,7 @@ const bossBehaviour={
       const norm=Math.atan2(Math.sin(rel),Math.cos(rel));
       const pd=dist(e,player);
       if(Math.abs(norm)<half&&pd<reach&&pd>e.r&&state.dashTime<=0&&(e.beamHit||0)<=0){
-        hurt(20*difficulty.speed);e.beamHit=.7;
+        hurt(20*difficulty.dmg);e.beamHit=.7;
       }
     }
     e.beamHit=(e.beamHit||0)-dt;
@@ -474,7 +498,7 @@ const bossBehaviour={
       e.shield=0;
       e.ringIn=(e.ringIn||0)-dt;
       if(e.ringIn<=0){
-        rings.push({x:e.x,y:e.y,r:e.r,speed:340*difficulty.speed,damage:22*difficulty.speed,life:2.2,color:spec.color});
+        rings.push({x:e.x,y:e.y,r:e.r,speed:340*difficulty.speed,damage:22*difficulty.dmg,life:2.2,color:spec.color});
         e.ringIn=1.5;
       }
       if(e.timer<=0){e.mode='shield';e.timer=0;e.adds=0;}
@@ -530,10 +554,11 @@ function moveEnemy(e,dt) {
   e.rot=(e.rot||0)+(e.rotSpeed||0)*dt;
   e.numIn=(e.numIn||0)-dt;
   e.slowT=Math.max(0,(e.slowT||0)-dt);
+  e.deflect=Math.max(0,(e.deflect||0)-dt);
   e.touch=(e.touch||0)-dt;
-  if(dist(e,player)<e.r+player.r&&e.touch<=0){if(state.dashTime<=0){const baseDamage=e.boss?(e.contact||28):10+spec.hp*1.5+(spec.speed>=60?5:0),damage=baseDamage*(1+(state.room-1)*.025)*difficulty.speed*(state.weapons.sword?.guard?.7:1)*(state.weapons.aegis?.plating?.75:1);const lethal=!e.boss&&(state.difficulty==='hard'||state.difficulty==='impossible')&&(e.type==='trap'||e.type==='pentagon');hurt(lethal?player.hp:damage);if(!e.boss){e.hp=0;spawnDamageNumber(e.x,e.y,999,'#fff');shake(4);}}e.touch=.55;burst(e.x,e.y,spec.color,10,110);}
+  if(dist(e,player)<e.r+player.r&&e.touch<=0){if(state.dashTime<=0){const heavy=!e.boss&&HEAVY_SHAPES.includes(e.type)?difficulty.heavy:1,baseDamage=e.boss?(e.contact||28):10+spec.hp*1.5+(spec.speed>=60?5:0),raw=baseDamage*heavy*(1+(state.room-1)*.025)*difficulty.dmg*(state.weapons.sword?.guard?.7:1)*(state.weapons.aegis?.plating?.75:1),damage=Math.min(raw,player.maxHp*CONTACT_CAP);hurt(damage);if(!e.boss){e.hp=0;spawnDamageNumber(e.x,e.y,999,'#fff');shake(4);}}e.touch=.55;burst(e.x,e.y,spec.color,10,110);}
   e.shoot-=dt;
-  if((e.type==='bowtie'||e.bossId==='sentinel')&&e.shoot<=0){const b=ang(e,player),boss=e.bossId==='sentinel',shots=boss?[-.24,-.12,0,.12,.24]:[0];for(const offset of shots)enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(b+offset)*(boss?282:224),vy:Math.sin(b+offset)*(boss?282:224),r:boss?7:5,life:4,damage:(boss?16:8+state.room*.5)*difficulty.speed});e.shoot=boss?1.15:rand(2,3.4);}
+  if((e.type==='bowtie'||e.bossId==='sentinel')&&e.shoot<=0){const b=ang(e,player),boss=e.bossId==='sentinel',shots=boss?[-.24,-.12,0,.12,.24]:[0];for(const offset of shots)enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(b+offset)*(boss?282:224),vy:Math.sin(b+offset)*(boss?282:224),r:boss?7:5,life:4,damage:(boss?16:8+state.room*.5)*difficulty.dmg});e.shoot=boss?1.15:rand(2,3.4);}
 }
 function weapons(dt) {
   if(state.weapons.laser){
@@ -645,12 +670,17 @@ function detonate(w,x,y,radius,damage,followUp){
 function updateArrows(dt) {
   for(const a of arrows){
     if(a.homing){
+      a.homeIn=(a.homeIn||0)-dt;
+      // each arrow chases whatever is nearest to itself, not a shared target
       const t=enemies.reduce((best,e)=>{const d=dist(e,a);return d<360&&(!best||d<best.d)?{e,d}:best;},null);
-      if(t){
-        const want=ang(a,t.e),speed=Math.hypot(a.vx,a.vy);
+      // long shots fan out before steering; a point-blank shot has no time to
+      // fan, so it corrects immediately rather than sailing past
+      if(t&&(a.homeIn<=0||t.d<150)){
+        const fan=(a.lane||0)*clamp((t.d-60)/120,0,1);
+        const want=ang(a,t.e)+fan,speed=Math.hypot(a.vx,a.vy);
         let cur=Math.atan2(a.vy,a.vx),diff=want-cur;
         while(diff<-Math.PI)diff+=Math.PI*2;while(diff>Math.PI)diff-=Math.PI*2;
-        cur+=clamp(diff,-4.5*dt,4.5*dt);
+        cur+=clamp(diff,-7.5*dt,7.5*dt);
         a.vx=Math.cos(cur)*speed;a.vy=Math.sin(cur)*speed;
       }
     }
@@ -686,7 +716,12 @@ function updateStars(dt) {
 }
 function xpValue(spec){const difficultyBonus=state.difficulty==='impossible'?1.25:state.difficulty==='hard'?1.1:state.difficulty==='easy'?.95:1;const healthBonus=1+Math.max(0,spec.hp-1)*.03;const speedBonus=spec.speed>=60?1.08:1;return Math.max(1,Math.round(spec.xp*healthBonus*speedBonus*difficultyBonus*(state.charXp||1)));}
 function deaths(){
-  for(const e of enemies)if(e.shield&&e.hp<e.maxHp*.999)e.hp=Math.max(e.hp,1);
+  for(const e of enemies){
+    if(e.shield){
+      if(e.shieldHp===undefined)e.shieldHp=e.hp;
+      if(e.hp<e.shieldHp){e.deflect=.2;e.hp=e.shieldHp;}   // shots bounce off entirely
+    }else if(e.shieldHp!==undefined)e.shieldHp=undefined;
+  }
   const alive=[];
   for(const e of enemies){
     if(e.hp>0){alive.push(e);continue;}
@@ -1315,7 +1350,7 @@ function drawBossArt(){
       ctx.beginPath();ctx.moveTo(e.x,e.y);ctx.lineTo(player.x,player.y);ctx.stroke();
       ctx.setLineDash([]);
     }
-    if(e.bossId==='prism'){
+    if(e.bossId==='beacon'){
       const reach=330;
       for(let i=0;i<3;i++){
         const ba=e.beamRot+i*Math.PI*2/3;
@@ -1329,8 +1364,9 @@ function drawBossArt(){
       }
     }
     if(e.bossId==='hollow'&&e.shield){
-      ctx.globalAlpha=.35+Math.sin(state.time*4)*.12;
-      ctx.strokeStyle='#ffffff';ctx.lineWidth=4;
+      const hit=clamp((e.deflect||0)/.2,0,1);
+      ctx.globalAlpha=.35+Math.sin(state.time*4)*.12+hit*.55;
+      ctx.strokeStyle='#ffffff';ctx.lineWidth=4+hit*5;
       ctx.beginPath();ctx.arc(e.x,e.y,e.r+18,0,7);ctx.stroke();
       ctx.globalAlpha=.16;ctx.fillStyle=spec.color;
       ctx.beginPath();ctx.arc(e.x,e.y,e.r+18,0,7);ctx.fill();
@@ -1862,7 +1898,7 @@ const demos=[
       g.restore();
     }},
   { title:'BOSSES EVERY TEN ROOMS', period:4,
-    text:'Rooms 10, 20, 30… hold a boss. Beat one and you pick a permanent relic for the rest of the run.',
+    text:'Rooms 10, 20, 30… each hold a different boss with its own attack pattern. Beat one and you claim a permanent relic.',
     draw(g,t){
       demoBg(g);
       const cx=100,cy=64;
@@ -1987,7 +2023,7 @@ function showStart(){
   const resetRow = confirmingReset
     ? '<div class="reset-row confirming"><span>Erase your best room, '+points+' credits and '+unlocked.size+' unlocked pilot'+(unlocked.size===1?'':'s')+(hardBeaten?', and re-lock IMPOSSIBLE':'')+'? This cannot be undone.</span><button id="resetNo">CANCEL</button><button id="resetYes" class="danger">ERASE</button></div>'
     : '<div class="reset-row"><span>BEST ROOM <b>'+highscore+'</b> <i>&bull;</i> '+points+' CREDITS'+(hardBeaten?' <i>&bull;</i> IMPOSSIBLE UNLOCKED':'')+'</span><button id="resetData">RESET DATA</button></div>';
-  show('<div class="modal"><div class="eyebrow">SHAPESHIFT // NEON SURVIVORS</div><h2>Choose your difficulty</h2><p>Flying as <b style="color:PILOTCOLOR">PILOTNAME</b> &middot; WASD or arrows to move, SHIFT to dash. Your bow fires itself.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>14% less enemy health, 12% slower. Contact still hurts.</p><p class="pay">CREDITS &times;0.7</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Baseline enemy health and speed. The intended run.</p><p class="pay">CREDITS &times;1</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>+28% health, +20% speed. Trapezoids and pentagons kill you in one touch.</p><p class="pay">CREDITS &times;1.75</p><button data-difficulty="hard">START HARD</button></div>' + (hardBeaten ? '<div class="card" style="border-color:#ff0000; box-shadow: 0 0 15px #ff000044;"><span class="card-key" style="color:#ff4f9a">04 // ELITE</span><h3 style="color:#ff4f9a">IMPOSSIBLE</h3><p>Triple health, +80% speed, one-touch deaths. Pays 25% more XP.</p><p class="pay hot">CREDITS &times;3</p><button data-difficulty="impossible" style="background:#ff4f9a">START IMPOSSIBLE</button></div>' : '') + '</div>' + resetRow + '<button class="continue ghost" id="startBack">BACK</button></div>');
+  show('<div class="modal"><div class="eyebrow">SHAPESHIFT // NEON SURVIVORS</div><h2>Choose your difficulty</h2><p>Flying as <b style="color:PILOTCOLOR">PILOTNAME</b> &middot; WASD or arrows to move, SHIFT to dash. Your bow fires itself.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>14% less enemy health, 12% slower, 15% softer hits.</p><p class="pay">CREDITS &times;0.7</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Baseline health, speed and damage. The intended run.</p><p class="pay">CREDITS &times;1</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>+28% health, +20% speed, +35% damage. Trapezoids and pentagons hit brutally hard.</p><p class="pay">CREDITS &times;1.75</p><button data-difficulty="hard">START HARD</button></div>' + (hardBeaten ? '<div class="card" style="border-color:#ff0000; box-shadow: 0 0 15px #ff000044;"><span class="card-key" style="color:#ff4f9a">04 // ELITE</span><h3 style="color:#ff4f9a">IMPOSSIBLE</h3><p>Triple health, +80% speed, and everything hits twice as hard. Pays 25% more XP.</p><p class="pay hot">CREDITS &times;3</p><button data-difficulty="impossible" style="background:#ff4f9a">START IMPOSSIBLE</button></div>' : '') + '</div>' + resetRow + '<button class="continue ghost" id="startBack">BACK</button></div>');
   ui.overlay.innerHTML=ui.overlay.innerHTML.replace('PILOTCOLOR',pilot.color).replace('PILOTNAME',pilot.name);
   document.querySelectorAll('[data-difficulty]').forEach(b=>b.onclick=()=>{confirmingReset=false;reset(b.dataset.difficulty);});
   $('#startBack').onclick=showHome;
