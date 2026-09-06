@@ -219,10 +219,10 @@ function toast(msg){
   toastTimer=setTimeout(()=>ui.toast.classList.remove('show'),2400);
 }
 const difficulties = {
-  easy:       { label: 'EASY',       hp: .86, speed: .88, dmg: .85, heavy: 1.15, credits: .7,  note: 'Relaxed enemy stats' },
-  medium:     { label: 'MEDIUM',     hp: 1,   speed: 1,   dmg: 1,   heavy: 1.3,  credits: 1,   note: 'Standard enemy stats' },
-  hard:       { label: 'HARD',       hp: 1.28,speed: 1.2, dmg: 1.35,heavy: 2.2,  credits: 1.75,note: 'Fast, reinforced enemies' },
-  impossible: { label: 'IMPOSSIBLE', hp: 3,   speed: 1.8, dmg: 2,   heavy: 2.2,  credits: 3,   note: 'Absolute carnage. Good luck.' }
+  easy:       { label: 'EASY',       hp: .86, speed: .88, dmg: .85, heavy: 1.15, credits: .7,  mass: .85, mix: .6,  note: 'Relaxed enemy stats' },
+  medium:     { label: 'MEDIUM',     hp: 1,   speed: 1,   dmg: 1,   heavy: 1.3,  credits: 1,   mass: 1,   mix: 1,   note: 'Standard enemy stats' },
+  hard:       { label: 'HARD',       hp: 1.28,speed: 1.2, dmg: 1.35,heavy: 2.2,  credits: 1.75,mass: 1.22,mix: 1.4, note: 'Fast, reinforced enemies' },
+  impossible: { label: 'IMPOSSIBLE', hp: 3,   speed: 1.8, dmg: 2,   heavy: 2.2,  credits: 3,   mass: 1.5, mix: 1.9, note: 'Absolute carnage. Good luck.' }
 };
 // heavy shapes hit far harder than the rest, but nothing one-shots you:
 // a single contact can never take more than this share of your hull.
@@ -301,17 +301,36 @@ function edge() {
   }
   return {x:cx,y:cy};
 }
+const spawnTable=[
+  {t:'square',   from:1,  base:34, growth:-.72},
+  {t:'triangle', from:1,  base:22, growth:-.62},
+  {t:'hex',      from:3,  base:18, growth:-.28},
+  {t:'diamond',  from:4,  base:16, growth:-.2 },
+  {t:'trap',     from:6,  base:12, growth: .35},
+  {t:'bowtie',   from:8,  base:12, growth: .15},
+  {t:'pentagon', from:10, base: 8, growth:1.5 },
+  {t:'prism',    from:12, base: 9, growth:1.2 },
+  {t:'seeker',   from:21, base: 9, growth:1.3 },
+  {t:'raker',    from:25, base: 8, growth:1.3 }
+];
+function spawnWeights(room,mix){
+  const out=[];
+  for(const e of spawnTable){
+    if(room<e.from)continue;
+    const progress=clamp((room-e.from)/25,0,1);
+    // harder settings lean into the shift; weak shapes fade faster, strong ones swell
+    const g=e.growth*(e.growth<0?Math.min(mix,1.6):mix);
+    out.push({t:e.t,w:Math.max(1.5,e.base*(1+g*progress))});
+  }
+  return out;
+}
 function type() {
-  const pool=['square','square','triangle'];
-  if(state.room>=3) pool.push('hex');
-  if(state.room>=6) pool.push('trap');
-  if(state.room>=8) pool.push('bowtie');
-  if(state.room>=4) pool.push('diamond');
-  if(state.room>=10) pool.push('pentagon');
-  if(state.room>=12) pool.push('prism');
-  if(state.room>=21) pool.push('seeker');
-  if(state.room>=25) pool.push('raker');
-  return pool[Math.floor(Math.random()*pool.length)];
+  const mix=(difficulties[state.difficulty]||difficulties.medium).mix||1;
+  const w=spawnWeights(state.room,mix);
+  let total=0; for(const e of w)total+=e.w;
+  let r=Math.random()*total;
+  for(const e of w){ r-=e.w; if(r<=0)return e.t; }
+  return w[w.length-1].t;
 }
 function spawn() {
   const name=type(), spec=types[name], p=edge();
@@ -322,9 +341,11 @@ function spawn() {
 function beginRoom() {
   camera();   // the opening wave spawns relative to the view, so fix it on the player first
   const bossRoom=state.room%10===0;
-  state.active=true; state.intermission=false; state.exit=null; state.vacuum=false; state.left=bossRoom?0:12+state.room*6; state.spawnIn=.55;
+  const mass=(difficulties[state.difficulty]||difficulties.medium).mass||1;
+  const wave=Math.round((12+state.room*6+Math.pow(state.room,1.3)*.35)*mass);
+  state.active=true; state.intermission=false; state.exit=null; state.vacuum=false; state.left=bossRoom?0:wave; state.spawnIn=.55;
   if(bossRoom){spawnBoss();sfx('boss');}
-  for(let i=0;i<Math.min(14,state.left);i++){spawn();state.left--;}
+  for(let i=0;i<Math.min(Math.round(14*mass),state.left);i++){spawn();state.left--;}
   ui.room.textContent=state.room; ui.roomState.textContent=bossRoom?bossForRoom(state.room).name+' // '+bossForRoom(state.room).blurb:'ROOM HOSTILES INBOUND';
   recordRoom(state.room);
   const bossDef=bossRoom?bossForRoom(state.room):null;
@@ -553,7 +574,7 @@ function update(dt,real) {
   state.history.unshift({x:player.x,y:player.y});if(state.history.length>24)state.history.pop();updateRelics(dt);
   if(player.hp>0&&state.time-player.hurtAt>2) player.hp=Math.min(player.maxHp,player.hp+player.regen*dt);   // never regen out of a death
   player.flash=Math.max(0,player.flash-dt);
-  if(state.active&&state.left>0){state.spawnIn-=dt;if(state.spawnIn<=0){spawn();state.left--;state.spawnIn=Math.max(.18,.55-state.room*.02);}}
+  if(state.active&&state.left>0){state.spawnIn-=dt;if(state.spawnIn<=0){spawn();state.left--;state.spawnIn=Math.max(.16,(.55-state.room*.02)/((difficulties[state.difficulty]||difficulties.medium).mass||1));}}
   state.bowIn-=dt;if(state.bowIn<=0){fire();state.bowIn=1/state.weapons.bow.rate;}
   for(const e of enemies) moveEnemy(e,dt);
   weapons(dt); updateArrows(dt); updateEchoShots(dt); updateEnemyBullets(dt); updateStars(dt); deaths(); updateParticles(dt); updateBlasts(dt); updateDelayedBlasts(dt); updateStrikes(dt); updateRings(dt); updatePulses(dt); updateBeams(dt); updateDamageNumbers(dt);
@@ -926,13 +947,13 @@ function weapons(dt) {
     }
     if(w.pulse){
       w.pulseIn=(w.pulseIn||0)-dt;
-      if(w.pulseIn<=0){
-        const burstDmg=w.damage*(w.ultimate?3.4:1.7);
-        for(const e of enemies)if(dist(e,player)<radius+e.r){e.hp-=burstDmg;e.flash=.14;spawnDamageNumber(e.x,e.y,Math.ceil(burstDmg),'#dffaff');}
-        blasts.push({x:player.x,y:player.y,radius,life:.4,maxLife:.4,color:w.color});
-        burst(player.x,player.y,w.color,16,220,{size:2.6,drag:3});
-        shake(3);
-        w.pulseIn=2.2;
+      // EVENT HORIZON drags everything inwards, so the burst must fire before
+      // anything actually reaches you — a proximity trigger guards the pull
+      const closing=w.ultimate&&enemies.some(e=>dist(e,player)<player.r+e.r+AEGIS_GUARD);
+      const sinceLast=AEGIS_CYCLE-(w.pulseIn||0);
+      if(w.pulseIn<=0||(closing&&sinceLast>=AEGIS_GUARD_GAP)){
+        aegisBurst(w,radius);
+        w.pulseIn=AEGIS_CYCLE;
       }
     }
   }
@@ -985,6 +1006,25 @@ function bladeAngles(w){
   return w.ultimate?[a,a+Math.PI/2,a+Math.PI,a+Math.PI*1.5]:[a];
 }
 function segDist(px,py,x1,y1,x2,y2){const dx=x2-x1,dy=y2-y1,L=dx*dx+dy*dy;const t=L?clamp(((px-x1)*dx+(py-y1)*dy)/L,0,1):0;return Math.hypot(px-(x1+dx*t),py-(y1+dy*t));}
+const AEGIS_CYCLE=2.2;        // normal spacing between discharges
+const AEGIS_GUARD=46;         // fires early once something is this close to touching you
+const AEGIS_GUARD_GAP=.7;     // but no more often than this
+function aegisBurst(w,radius){
+  const dmg=w.damage*(w.ultimate?6.5:1.7);
+  for(const e of enemies){
+    if(dist(e,player)>=radius+e.r)continue;
+    e.hp-=dmg;e.flash=Math.max(e.flash,.16);
+    spawnDamageNumber(e.x,e.y,Math.ceil(dmg),'#dffaff');
+  }
+  blasts.push({x:player.x,y:player.y,radius,life:.4,maxLife:.4,color:w.color});
+  burst(player.x,player.y,w.color,w.ultimate?24:16,260,{size:2.8,drag:2.8});
+  // and throw the survivors back out of the well
+  // the wave must not out-reach the damage, or it would fling enemies clear
+  // of the well before the burst ever touches them
+  if(w.ultimate)shockwave(player.x,player.y,w.color,620,radius);
+  shake(w.ultimate?7:3);
+  sfx('boom');
+}
 function zapEnemy(w,e,dmg){
   e.hp-=dmg;e.flash=.12;
   spawnDamageNumber(e.x,e.y,Math.ceil(dmg),w.color);
@@ -1197,7 +1237,7 @@ const ultimateData={
   laser:['PRISM NOVA','A second beam pulses every 0.4s into the three nearest enemies.'],
   bomb:['VOID SUPERNOVA','A wider secondary blast detonates every 1.6s for double damage.'],
   sword:['CELESTIAL BLADES','Four edges orbit you instead of one, and they spin up sharply whenever something comes close.'],
-  aegis:['EVENT HORIZON','The field drags enemies inward and its burst hits twice as hard.'],
+  aegis:['EVENT HORIZON','The field hauls enemies inward, then detonates before they can touch you — vaporising the weak and hurling the rest back out.'],
   arc:['STORM LATTICE','Every discharge also forks to the two enemies nearest you.']
 };
 function availableWeaponChoices(){
@@ -2634,7 +2674,7 @@ function showStart(){
   const resetRow = confirmingReset
     ? '<div class="reset-row confirming"><span>Erase your best room, '+points+' credits and '+unlocked.size+' unlocked pilot'+(unlocked.size===1?'':'s')+(hardBeaten?', and re-lock IMPOSSIBLE':'')+'? This cannot be undone.</span><button id="resetNo">CANCEL</button><button id="resetYes" class="danger">ERASE</button></div>'
     : '<div class="reset-row"><span>BEST ROOM <b>'+highscore+'</b> <i>&bull;</i> '+points+' CREDITS'+(hardBeaten?' <i>&bull;</i> IMPOSSIBLE UNLOCKED':'')+'</span><button id="resetData">RESET DATA</button></div>';
-  show('<div class="modal"><div class="eyebrow">SHAPESHIFT // NEON SURVIVORS</div><h2>Choose your difficulty</h2><p>Flying as <b style="color:PILOTCOLOR">PILOTNAME</b> &middot; WASD or arrows to move, SHIFT to dash. Your blaster fires itself.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>14% less enemy health, 12% slower, 15% softer hits.</p><p class="pay">CREDITS &times;0.7</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Baseline health, speed and damage. The intended run.</p><p class="pay">CREDITS &times;1</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>+28% health, +20% speed, +35% damage. Trapezoids and pentagons hit brutally hard.</p><p class="pay">CREDITS &times;1.75</p><button data-difficulty="hard">START HARD</button></div>' + (hardBeaten ? '<div class="card" style="border-color:#ff0000; box-shadow: 0 0 15px #ff000044;"><span class="card-key" style="color:#ff4f9a">04 // ELITE</span><h3 style="color:#ff4f9a">IMPOSSIBLE</h3><p>Triple health, +80% speed, everything hits twice as hard, and touching a boss kills you outright.</p><p class="pay hot">CREDITS &times;3</p><button data-difficulty="impossible" style="background:#ff4f9a">START IMPOSSIBLE</button></div>' : '') + '</div>' + resetRow + '<button class="continue ghost" id="startBack">BACK</button></div>');
+  show('<div class="modal"><div class="eyebrow">SHAPESHIFT // NEON SURVIVORS</div><h2>Choose your difficulty</h2><p>Flying as <b style="color:PILOTCOLOR">PILOTNAME</b> &middot; WASD or arrows to move, SHIFT to dash. Your blaster fires itself.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>14% less enemy health, 12% slower, 15% softer hits, and a thinner crowd.</p><p class="pay">CREDITS &times;0.7</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Baseline health, speed, damage and numbers. The intended run.</p><p class="pay">CREDITS &times;1</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>+28% health, +20% speed, +35% damage, +22% more enemies and a nastier mix of them.</p><p class="pay">CREDITS &times;1.75</p><button data-difficulty="hard">START HARD</button></div>' + (hardBeaten ? '<div class="card" style="border-color:#ff0000; box-shadow: 0 0 15px #ff000044;"><span class="card-key" style="color:#ff4f9a">04 // ELITE</span><h3 style="color:#ff4f9a">IMPOSSIBLE</h3><p>Triple health, +80% speed, double damage, half again as many enemies &mdash; and touching a boss kills you outright.</p><p class="pay hot">CREDITS &times;3</p><button data-difficulty="impossible" style="background:#ff4f9a">START IMPOSSIBLE</button></div>' : '') + '</div>' + resetRow + '<button class="continue ghost" id="startBack">BACK</button></div>');
   ui.overlay.innerHTML=ui.overlay.innerHTML.replace('PILOTCOLOR',pilot.color).replace('PILOTNAME',pilot.name);
   document.querySelectorAll('[data-difficulty]').forEach(b=>b.onclick=()=>{confirmingReset=false;clearRun();reset(b.dataset.difficulty);});
   $('#startBack').onclick=showHome;
