@@ -11,7 +11,7 @@ function camera(){
 }
 const MOVE = 1.15;         // how much of that growth travel speeds take on
 const $ = id => document.querySelector(id);
-const ui = { hp: $('#healthFill'), hpText: $('#healthText'), xp: $('#xpFill'), xpText: $('#xpText'), level: $('#levelText'), weapons: $('#weaponList'), room: $('#waveNumber'), roomState: $('#waveState'), kills: $('#killCount'), timer: $('#timer'), best: $('#bestWave'), toast: $('#toast'), dashRow: $('#dashRow'), dashText: $('#dashText'), phaseRow: $('#phaseRow'), phaseText: $('#phaseText'), soundBtn: $('#soundBtn'), arena: $('.arena-label'), fsBtn: $('#fsBtn'), overlay: $('#overlay') };
+const ui = { hp: $('#healthFill'), hpText: $('#healthText'), xp: $('#xpFill'), xpText: $('#xpText'), level: $('#levelText'), weapons: $('#weaponList'), room: $('#waveNumber'), roomState: $('#waveState'), kills: $('#killCount'), timer: $('#timer'), best: $('#bestWave'), toast: $('#toast'), dashRow: $('#dashRow'), dashText: $('#dashText'), phaseRow: $('#phaseRow'), phaseText: $('#phaseText'), soundBtn: $('#soundBtn'), xpHud: $('.xp-hud'), arena: $('.arena-label'), fsBtn: $('#fsBtn'), overlay: $('#overlay') };
 const keys = new Set();
 
 // ---- audio ---------------------------------------------------------------
@@ -146,6 +146,16 @@ const characters = {
   paragon:   { name:'PARAGON',    cost:1200, hp:1.05, speed:1,    color:'#ffe17a', tag:'APEX', plane:'apex', sides:6, mark:'star', damage:1.2, xp:1.2,
                blurb:'Every system tuned past spec. Expensive for a reason.', perks:['+20% weapon damage','+20% XP gained','+5% hull'] }
 };
+// v2 introduces the skill tree, which changes what a run is allowed to offer you.
+// Progress earned under the old economy has no meaning here, so every profile is
+// cleared once and starts again from the root of the tree.
+const SAVE_VERSION='2';
+const SAVE_KEYS=['shapeshift_best_room','shapeshift_hard_beaten','shapeshift_points',
+  'shapeshift_unlocked','shapeshift_character','shapeshift_run','shapeshift_skill','shapeshift_tree'];
+if(localStorage.getItem('shapeshift_version')!==SAVE_VERSION){
+  for(const k of SAVE_KEYS)localStorage.removeItem(k);
+  localStorage.setItem('shapeshift_version',SAVE_VERSION);
+}
 const STARTER='drifter';
 let highscore = Math.max(1, parseInt(localStorage.getItem('shapeshift_best_room'), 10) || 0);
 let points = Math.max(0, parseInt(localStorage.getItem('shapeshift_points'), 10) || 0);
@@ -153,21 +163,25 @@ let unlocked = new Set([STARTER]);
 (localStorage.getItem('shapeshift_unlocked')||'').split(',').forEach(id=>{if(characters[id])unlocked.add(id);});
 let chosen = characters[localStorage.getItem('shapeshift_character')] ? localStorage.getItem('shapeshift_character') : STARTER;
 if(!unlocked.has(chosen)) chosen=STARTER;
+let devMode=false, devBackup=null;
+let skill = Math.max(0, parseInt(localStorage.getItem('shapeshift_skill'), 10) || 0);
+let tree = (()=>{ try{ const t=JSON.parse(localStorage.getItem('shapeshift_tree')||'{}'); return (t&&typeof t==='object')?t:{}; }catch(e){ return {}; } })();
 const RUN_KEY='shapeshift_run';
 function loadRun(){
   try{ const r=JSON.parse(localStorage.getItem(RUN_KEY)||'null'); return r&&r.v===1?r:null; }catch(e){ return null; }
 }
 let savedRun = loadRun();
-function clearRun(){ savedRun=null; localStorage.removeItem(RUN_KEY); }
+function clearRun(){ savedRun=null; if(!devMode)localStorage.removeItem(RUN_KEY); }
 // only the run's meaning is stored — the room repopulates on resume
 function storeRun(){
-  if(!state)return;
+  if(!state||devMode)return;
   savedRun={ v:1, difficulty:state.difficulty, character:state.character,
     room:state.room, level:state.level, xp:state.xp, need:state.need,
     kills:state.kills, time:state.time, paid:state.paidCredits||0,
     globals:state.globals, relicsTaken:state.relicsTaken, relicRooms:state.relicRooms,
     hasCloak:!!state.hasCloak, echo:!!state.echo, beatBest:!!state.beatBest,
     dashPower:state.dashPower, dashCd:state.dashCd, charXp:state.charXp, charDamage:state.charDamage,
+    rateScale:state.rateScale, critChance:state.critChance, critMult:state.critMult, paidSkill:state.paidSkill||0,
     weapons:state.weapons, hp:player.hp, maxHp:player.maxHp, speed:player.speed, regen:player.regen };
   try{ localStorage.setItem(RUN_KEY,JSON.stringify(savedRun)); }catch(e){}
 }
@@ -181,13 +195,17 @@ function resumeRun(){
   state.hasCloak=!!r.hasCloak; state.beatBest=!!r.beatBest;
   state.dashPower=r.dashPower||1; state.dashCd=r.dashCd||3;
   state.charXp=r.charXp||1; state.charDamage=r.charDamage||1;
+  state.rateScale=r.rateScale||1; state.critChance=r.critChance||0; state.critMult=r.critMult||1.3;
+  state.paidSkill=r.paidSkill||0;
   if(r.weapons) state.weapons=r.weapons;
+  state.hasDraw=hasDraw();
   player.maxHp=r.maxHp; player.hp=Math.min(r.hp,r.maxHp); player.speed=r.speed; player.regen=r.regen;
   if(r.echo) state.echo={x:player.x,y:player.y,fireIn:0};
   enemies.length=0; player.x=RW/2; player.y=RH/2;
   beginRoom(); hide();
 }
 function saveProfile(){
+  if(devMode)return;                       // dev mode is a sandbox: the real profile is untouched
   localStorage.setItem('shapeshift_points',points);
   localStorage.setItem('shapeshift_unlocked',[...unlocked].join(','));
   localStorage.setItem('shapeshift_character',chosen);
@@ -205,7 +223,7 @@ function recordRoom(room){
   if(room<=highscore)return;
   const previous=highscore;
   highscore=room;
-  localStorage.setItem('shapeshift_best_room',highscore);
+  if(!devMode)localStorage.setItem('shapeshift_best_room',highscore);
   paintBest();
   // announce once per run, and not on the very first run when there is no record to beat
   if(state&&!state.beatBest&&previous>1){state.beatBest=true;toast('NEW BEST — ROOM '+room);}
@@ -240,24 +258,33 @@ function resize() {
   ctx.lineJoin='round'; ctx.lineCap='round';
 }
 resize(); addEventListener('resize', resize);
-addEventListener('keydown', e => { const k = e.key.toLowerCase(); if (['arrowup','arrowdown','arrowleft','arrowright',' ','shift'].includes(k)) e.preventDefault(); keys.add(k); if (k === ' ') pause(); if (k === 'shift') dash(); if (k === 'e') phaseCloak(); if (k === 'f') toggleFullscreen(); if (k === 'm'){initAudio();setSound(!soundOn);} });
+addEventListener('keydown', e => { if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'))return;   // let text fields have their keys
+  const k = e.key.toLowerCase(); if (['arrowup','arrowdown','arrowleft','arrowright',' ','shift'].includes(k)) e.preventDefault(); keys.add(k); if (k === ' ') pause(); if (k === 'shift') dash(); if (k === 'e') phaseCloak(); if (k === 'f') toggleFullscreen(); if (k === 'm'){initAudio();setSound(!soundOn);} });
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 
 function reset(difficulty = 'medium') {
   const c = characters[chosen] || characters[STARTER];
   const maxHp = Math.round(100 * c.hp);
-  player = { x: RW / 2, y: RH / 2, r: 16, hp: maxHp, maxHp, speed: Math.round(288 * c.speed), regen: 3 + (c.regen || 0), hurtAt: -10, aim: 0, heading: 0, thrust: 0, vx: 0, vy: 0 };
+  player = { x: RW / 2, y: RH / 2, r: 16, hp: maxHp, maxHp, speed: Math.round(288 * c.speed * treeSpeed()), regen: 3 + (c.regen || 0), hurtAt: -10, aim: 0, heading: 0, thrust: 0, vx: 0, vy: 0 };
   enemies = []; arrows = []; enemyBullets = []; stars = []; particles = []; blasts = []; delayedBlasts = []; echoShots = []; damageNumbers = []; strikes = []; rings = []; pulses = []; beams = []; mines = []; wells = [];
   state = { difficulty, last: performance.now(), time: 0, room: 1, level: 1, xp: 0, need: 60, kills: 0, left: 0, spawnIn: 0, active: true, paused: false, upgradeOpen: false, intermission: false, transitioning: false, roomTransition: 0, exit: null, relicRooms: {}, globals: {}, relicsTaken: [], relicOpen: false, vacuum: false, beatBest: false, over: false, dying: 0, hitStop: 0, beatIn: 0, lowPulse: 0, knockX: 0, knockY: 0, knockT: 0, paidCredits: 0, portalArm: 0, history: [], echo: null, cloakTime: 0, cloakCooldown: 0, bowIn: 0, laserIn: 0, bombIn: 0, mineIn: 0, dashCooldown: 0, dashTime: 0, dashX: 0, dashY: 0, dashPower: 1, dashCd: 3, arcIn: 0, character: STARTER, charXp: 1, charDamage: 1, lastMoveX: 1, lastMoveY: 0, shake: 0, playerAlpha: 1, screenAlpha: 0, cameraZoom: 1, zoomCenterX: RW/2, zoomCenterY: RH/2, victoryPortal: null, victorySequence: null, victoryTimer: 0, roomBanner: null, cameraRot: 0, flash: 0, warp: null, suckR: 0, suckA: 0, suckDir: 1, portalCharge: 0, hurtFlash: 0, weapons: { bow: { name: 'VULCAN CANNON', color: '#55e6ff', damage: 2, rate: 1.3, level: 0, upgrades: 0, taken: [], ultimate: false } } };
   state.character=chosen;
   state.charXp=c.xp||1;
-  state.charDamage=c.damage||1;
+  state.charDamage=(c.damage||1)*treeDamage();
+  state.rateScale=treeRate();
+  state.critChance=treeCritChance();
+  state.critMult=treeCritMult();
+  state.hasDash=treeHas('dashDrive');
+  state.paidSkill=0;
   if(c.dashCd) state.dashCd=c.dashCd;
   if(c.dashPower) state.dashPower=c.dashPower;
   if(c.weapon) state.weapons[c.weapon]=newWeapon(c.weapon);
-  if(state.charDamage!==1) for(const w of Object.values(state.weapons)) w.damage*=state.charDamage;
+  for(const w of Object.values(state.weapons)) scaleWeapon(w);
+  state.hasDraw=hasDraw();
   beginRoom(); hide();
 }
+// pilot and tree multipliers land on a weapon the moment it is created
+function scaleWeapon(w){ w.damage*=state.charDamage||1; w.rate*=state.rateScale||1; return w; }
 function newWeapon(id){
   const d=weaponData[id];
   return {name:d[0],color:d[1],damage:d[2],rate:d[3],level:0,upgrades:0,taken:[],ultimate:false};
@@ -274,7 +301,7 @@ function knockback(from,power,time){
   state.knockY=(player.y-from.y)/d*power;
   state.knockT=time;
 }
-const spawnDamageNumber = (x, y, n, color) => damageNumbers.push({x, y, n, color, life: 0.6});
+const spawnDamageNumber = (x, y, n, color, crit) => damageNumbers.push({x, y, n, color, life: 0.6, crit});
 function edge() {
   // spawn just outside the view rather than at the room's corners: in a room
   // this size a far-corner spawn would take a slow shape over a minute to reach you
@@ -399,7 +426,7 @@ function fire() {
 function hurt(n){if(state.cloakTime>0||state.dying>0)return;sfx('hurt');hitStop(n>=player.maxHp*.25?.07:0);player.hp=Math.max(0,player.hp-n);player.hurtAt=state.time;player.flash=0.1;state.hurtFlash=Math.min(1,(state.hurtFlash||0)+clamp(n/45,.3,1));burst(player.x,player.y,'#ff557d',10,150,{size:2.6,drag:4,spread:player.r});shake(12);}
 function phaseCloak(){if(!state||!state.hasCloak||state.paused||state.victorySequence||state.cloakTime>0||state.cloakCooldown>0)return;state.cloakTime=3;state.cloakCooldown=12;burst(player.x,player.y,'#bca7ff',30,180);}
 function dash(){
-  if(!state||state.paused||state.transitioning||state.victorySequence||(!state.exit&&state.intermission)||state.dashCooldown>0||state.dashTime>0)return;
+  if(!state||!state.hasDash||state.paused||state.transitioning||state.victorySequence||(!state.exit&&state.intermission)||state.dashCooldown>0||state.dashTime>0)return;
   let x=(keys.has('d')||keys.has('arrowright')?1:0)-(keys.has('a')||keys.has('arrowleft')?1:0);
   let y=(keys.has('s')||keys.has('arrowdown')?1:0)-(keys.has('w')||keys.has('arrowup')?1:0);
   if(!x&&!y){x=state.lastMoveX;y=state.lastMoveY;}
@@ -1062,8 +1089,9 @@ function aegisBurst(w,radius){
   const dmg=w.damage*(w.ultimate?6.5:1.7);
   for(const e of enemies){
     if(dist(e,player)>=radius+e.r)continue;
-    e.hp-=dmg;e.flash=Math.max(e.flash,.16);
-    spawnDamageNumber(e.x,e.y,Math.ceil(dmg),'#dffaff');
+    const h=critHit(dmg);
+    e.hp-=h.dmg;e.flash=Math.max(e.flash,h.crit?.24:.16);
+    spawnDamageNumber(e.x,e.y,Math.ceil(h.dmg),'#dffaff',h.crit);
   }
   blasts.push({x:player.x,y:player.y,radius,life:.4,maxLife:.4,color:w.color});
   burst(player.x,player.y,w.color,w.ultimate?24:16,260,{size:2.8,drag:2.8});
@@ -1075,23 +1103,26 @@ function aegisBurst(w,radius){
   sfx('boom');
 }
 function zapEnemy(w,e,dmg){
-  e.hp-=dmg;e.flash=.12;
-  spawnDamageNumber(e.x,e.y,Math.ceil(dmg),w.color);
+  const h=critHit(dmg);
+  e.hp-=h.dmg;e.flash=h.crit?.2:.12;
+  spawnDamageNumber(e.x,e.y,Math.ceil(h.dmg),w.color,h.crit);
   burst(e.x,e.y,'#e6d4ff',5,130,{size:2,drag:5});
   if(w.overload){e.slowT=Math.max(e.slowT||0,1.2);e.slowAmt=Math.max(e.slowAmt||0,.4);}
   sfx('arc');
 }
 function hitLaser(w,e,secondary){
-  e.hp-=w.damage;e.flash=.12;
-  if(w.linger){e.laserLinger=w.linger;e.burnDps=w.damage*2.2;}
-  spawnDamageNumber(e.x,e.y,Math.ceil(w.damage),w.color);
+  const h=critHit(w.damage);
+  e.hp-=h.dmg;e.flash=h.crit?.2:.12;
+  if(w.linger){e.laserLinger=w.linger;e.burnDps=w.damage*2.2;}   // burn ticks are continuous, so never a crit
+  spawnDamageNumber(e.x,e.y,Math.ceil(h.dmg),w.color,h.crit);
   burst(e.x,e.y,'#c879ff',6,110,{size:2.2,drag:4.5});
   if(!secondary){w.beamT=.14;w.bx=e.x;w.by=e.y;w.nova=null;shake(1);sfx('laser');}
 }
 function detonate(w,x,y,radius,damage,followUp){
   for(const e of enemies)if(dist(e,{x,y})<radius){
-    e.hp-=damage;e.flash=.18;
-    spawnDamageNumber(e.x,e.y,Math.ceil(damage),w.color);
+    const h=critHit(damage);
+    e.hp-=h.dmg;e.flash=h.crit?.26:.18;
+    spawnDamageNumber(e.x,e.y,Math.ceil(h.dmg),w.color,h.crit);
   }
   blasts.push({x,y,radius,life:.42,maxLife:.42,color:w.color});
   burst(x,y,w.color,26,240,{size:3.2,drag:2.6});
@@ -1160,8 +1191,8 @@ function updateMines(dt){
       for(const e of enemies){
         const d=dist(e,m);
         if(d>m.radius)continue;
-        const core=m.crush&&d<m.radius*.45,dmg=m.damage*(core?1.75:1);
-        e.hp-=dmg;e.flash=.2;spawnDamageNumber(e.x,e.y,Math.ceil(dmg),m.color);
+        const core=m.crush&&d<m.radius*.45,h=critHit(m.damage*(core?1.75:1));
+        e.hp-=h.dmg;e.flash=h.crit?.28:.2;spawnDamageNumber(e.x,e.y,Math.ceil(h.dmg),m.color,h.crit);
         // CRUSH DEPTH hurls every survivor clear, the cored ones included — they were
         // dragged to the middle, so excluding them meant almost nothing was ever thrown.
         // Hand it to the knockback the enemy already integrates rather than teleporting.
@@ -1209,7 +1240,8 @@ function updateArrows(dt) {
     // an arrow may only score once per enemy — pierce carries it through to the next one
     for(const e of enemies)if(a.life>0&&dist(a,e)<e.r+5&&!(a.hit&&a.hit.includes(e))){
       (a.hit||(a.hit=[])).push(e);
-      e.hp-=a.damage;e.flash=.1;spawnDamageNumber(e.x,e.y,Math.ceil(a.damage),a.color);shake(2);sfx('hit');
+      const ah=critHit(a.damage);
+      e.hp-=ah.dmg;e.flash=ah.crit?.2:.1;spawnDamageNumber(e.x,e.y,Math.ceil(ah.dmg),a.color,ah.crit);shake(ah.crit?4:2);sfx('hit');
       if(a.pierce>0)a.pierce--;else a.life=0;
       burst(a.x,a.y,a.color,6,120,{size:2.2,drag:5});
     }
@@ -1270,7 +1302,7 @@ function updateStars(dt) {
     if(k){s.x+=(player.x-s.x)*dt*k;s.y+=(player.y-s.y)*dt*k;}
     if(d<32){state.xp+=s.value;s.dead=true;sfx('pip');burst(s.x,s.y,'#ffe17a',7,130,{size:2.2,drag:5});}
   }
-  stars=stars.filter(s=>!s.dead);if(state.xp>=state.need) levelUp();
+  stars=stars.filter(s=>!s.dead);if(state.xp>=state.need&&state.hasDraw) levelUp();
 }
 function xpValue(spec){const difficultyBonus=state.difficulty==='impossible'?1.25:state.difficulty==='hard'?1.1:state.difficulty==='easy'?.95:1;const healthBonus=1+Math.max(0,spec.hp-1)*.03;const speedBonus=spec.speed>=60?1.08:1;return Math.max(1,Math.round(spec.xp*healthBonus*speedBonus*difficultyBonus*(state.charXp||1)));}
 function deaths(){
@@ -1318,8 +1350,9 @@ function finishRoom(){
 // instantly, and the remnant sweep has time to land
 function openPortal(){state.victoryPortal={x:RW/2,y:RH/2,r:34};state.portalArm=.7;}
 function nextRoom(){
-  if(state.difficulty==='hard' && state.room===10){
-    localStorage.setItem('shapeshift_hard_beaten', 'true');
+  if(state.room===IMPOSSIBLE_ROOM && !devMode){
+    localStorage.setItem('shapeshift_hard_beaten', 'true');   // key predates the room-50 rule
+    toast('IMPOSSIBLE UNLOCKED');
   }
   state.room++;player.x=RW/2;player.y=RH/2;player.vx=0;player.vy=0;state.history=[];beginRoom();
 }
@@ -1378,6 +1411,124 @@ const weaponUpgrades={
     ['mine-crush','CRUSH DEPTH','Enemies dragged into the core take 75% more damage, and survivors are hurled outward.']
   ]
 };
+// ---- skill tree ---------------------------------------------------------
+// Meta-progression that decides what a run is even allowed to offer. A weapon or one
+// of its upgrades stays out of the level-up draw until it is bought here, so the first
+// runs are deliberately thin and every point spent widens the pool permanently.
+// Later tiers cost more, which is what keeps deep runs paying off rather than trivial.
+const WEAPON_TIER={bow:0,laser:1,bomb:1,sword:2,mine:2,aegis:3,arc:3};
+const TIER_WEAPON=[0,14,22,30], TIER_ULT=[45,70,95,120];
+// a weapon's five upgrades climb in price across the set rather than costing a flat
+// rate, so finishing a weapon is a real commitment and the cheap first pick stays
+// cheap. Position on the list sets the price; the tier multiplier scales the whole
+// curve, so tier 1 runs 6/8/10/14/20 and tier 3 runs 12/16/20/28/40.
+const UPGRADE_CURVE=[3,4,5,7,10], TIER_UPGRADE_MULT=[1,2,3,4];
+const upgradeCost=(tier,i)=>UPGRADE_CURVE[Math.min(i,UPGRADE_CURVE.length-1)]*TIER_UPGRADE_MULT[tier];
+const BOW_NAME='VULCAN CANNON', BOW_COLOR='#55e6ff';
+// per-rank costs; the length of the list is how many times a node can be taken
+const PASSIVES={
+  power:{name:'OVERCHARGE',branch:'amp',costs:[15,32,66],req:['w:bow'],
+    desc:'Every weapon you carry deals 5% more damage, on top of anything else.'},
+  crit:{name:'CRITICAL SYSTEMS',branch:'amp',costs:[48],req:['power'],
+    desc:'Direct hits can now critical: a 1% chance to land 1.3x damage. Both numbers can be raised.'},
+  critChance:{name:'TARGETING LATTICE',branch:'amp',costs:[14,22,34,52,78],req:['crit'],
+    desc:'Critical chance +2 percentage points.'},
+  critPower:{name:'FRACTURE ROUNDS',branch:'amp',costs:[20,34,56,88],req:['crit'],
+    desc:'Critical hits multiply for a further +0.2x.'},
+  dashDrive:{name:'DASH DRIVE',branch:'systems',costs:[12],req:['w:bow'],
+    desc:'Unlocks the dash on SHIFT: a short burst of speed that also carries you straight through anything that would have hit you.'},
+  rate:{name:'CYCLE TUNING',branch:'rate',costs:[12,22,38,62],req:['w:bow'],
+    desc:'Every weapon fires 6% faster.'},
+  speed:{name:'THRUST VECTORING',branch:'speed',costs:[10,18,30,50],req:['w:bow'],
+    desc:'Your airframe moves 4% faster.'}
+};
+// in-run system upgrades. `run` is the level-up card, `each` the pause-menu line,
+// `desc` the tree tooltip — one definition so the three can never disagree.
+const GLOBALS={
+  health:{name:'REINFORCED HULL',cost:8,run:'Maximum health +25 and fully repairs.',each:'Maximum health +25 each',
+    desc:'Lets a level-up offer REINFORCED HULL: +25 maximum health and a full repair, every time you take it.'},
+  speed:{name:'KINETIC THRUSTERS',cost:8,run:'Movement speed +18%.',each:'Movement speed +18% each',
+    desc:'Lets a level-up offer KINETIC THRUSTERS: +18% movement speed, every time you take it.'},
+  regen:{name:'NANITE REPAIR',cost:10,run:'Health regeneration +2 per second.',each:'Health regeneration +2/s each',
+    desc:'Lets a level-up offer NANITE REPAIR: +2 health regenerated per second, every time you take it.'},
+  dash:{name:'SLIPSTREAM COILS',cost:14,req:['dashDrive'],run:'Dash carries you 60% further. Offered once.',each:'Dash carries you 60% further',
+    desc:'Lets a level-up offer SLIPSTREAM COILS, which carries your dash 60% further. Offered once per run. Needs DASH DRIVE — there is nothing to extend without it.'}
+};
+const PASSIVE_STEP={power:'+5% damage',crit:'unlocks critical hits',critChance:'+2% chance',
+  critPower:'+0.2x multiplier',rate:'+6% fire rate',speed:'+4% speed'};
+function buildTree(){
+  const nodes=[];
+  for(const id of ['bow','laser','bomb','sword','mine','aegis','arc']){
+    const t=WEAPON_TIER[id], core=id==='bow';
+    const wname=core?BOW_NAME:weaponData[id][0], wcol=core?BOW_COLOR:weaponData[id][1];
+    nodes.push({id:'w:'+id,name:wname,color:wcol,branch:core?'core':'arms',group:id,head:true,
+      costs:[exclusiveWeapons[id]?0:TIER_WEAPON[t]],req:core?[]:['w:bow'],
+      grantedBy:exclusiveWeapons[id]||null,
+      desc:core?'The cannon every run starts with. It costs nothing — take it and fly.'
+        :exclusiveWeapons[id]?('Comes with '+characters[exclusiveWeapons[id]].name+' — you already have it. Its upgrades are bought below.')
+        :('Adds '+wname+' to the level-up draw, so runs can offer it.')});
+    weaponUpgrades[id].forEach((u,i)=>
+      nodes.push({id:'u:'+id+':'+u[0],name:u[1],color:wcol,branch:core?'core':'arms',group:id,
+        costs:[upgradeCost(t,i)],req:['w:'+id],desc:u[2]}));
+    nodes.push({id:'ult:'+id,name:ultimateData[id][0],color:'#ffe17a',branch:core?'core':'arms',group:id,ult:true,
+      costs:[TIER_ULT[t]],req:weaponUpgrades[id].map(u=>'u:'+id+':'+u[0]),desc:ultimateData[id][1]});
+  }
+  for(const id of Object.keys(PASSIVES))nodes.push(Object.assign({id,group:'passive'},PASSIVES[id]));
+  for(const id of Object.keys(GLOBALS))
+    nodes.push({id:'g:'+id,name:GLOBALS[id].name,color:'#9cf0bd',branch:'systems',group:'system',
+      costs:[GLOBALS[id].cost],req:GLOBALS[id].req||['w:bow'],desc:GLOBALS[id].desc});
+  for(const n of nodes)n.max=n.costs.length;
+  return nodes;
+}
+// DEFLECTOR SHIELD and ION ARC come with WARDEN and REVENANT rather than being
+// bought: owning the pilot counts as owning the weapon node, which satisfies the
+// prerequisite on its upgrades. The upgrades themselves are still paid for.
+const grantedBy=id=>id.indexOf('w:')===0?exclusiveWeapons[id.slice(2)]:null;
+const nodeGranted=id=>{const owner=grantedBy(id);return !!owner&&unlocked.has(owner);};
+// and the whole group stays off the tree until you have the pilot to fly it
+const nodeVisible=n=>{const owner=exclusiveWeapons[n.group];return !owner||unlocked.has(owner);};
+const treeRank=id=>nodeGranted(id)?1:(tree[id]||0);
+const treeHas=id=>treeRank(id)>0;
+const nodeCost=n=>n.costs[Math.min(treeRank(n.id),n.max-1)];
+const nodeReqMet=n=>n.req.every(r=>treeHas(r));
+const nodeMaxed=n=>treeRank(n.id)>=n.max;
+const nodeBuyable=n=>!nodeMaxed(n)&&nodeVisible(n)&&nodeReqMet(n)&&skill>=nodeCost(n);
+function saveTree(){
+  if(devMode)return;                       // dev edits never touch the real profile
+  localStorage.setItem('shapeshift_skill',skill);
+  localStorage.setItem('shapeshift_tree',JSON.stringify(tree));
+}
+function buyNode(id){
+  const n=TREE_BY_ID[id];
+  if(!n||!nodeBuyable(n))return false;
+  skill-=nodeCost(n);
+  tree[id]=treeRank(id)+1;
+  saveTree();
+  return true;
+}
+// clearing this room is what opens IMPOSSIBLE, on any difficulty
+const IMPOSSIBLE_ROOM=50;
+// a run pays out a handful of points, weighted hard toward depth. IMPOSSIBLE pays
+// double, which is the only reason to take a setting that can end a run on contact.
+const SKILL_RATE={easy:1,medium:1,hard:1,impossible:2};
+const skillRate=d=>SKILL_RATE[d]||1;
+// round the room curve first, then multiply: rounding a doubled figure would pay
+// 13 where twice 6 is 12, and "double" has to mean exactly double
+const skillBase=room=>room<2?0:Math.max(1,Math.round(Math.pow(room,1.22)/2.6));
+const skillReward=(room,difficulty)=>skillBase(room)*skillRate(difficulty);
+const skillOwed=()=>Math.max(0,skillReward(state.room,state.difficulty)-(state.paidSkill||0));
+// what the tree is worth to a run, read fresh at reset
+const treeDamage=()=>1+.05*treeRank('power');
+const treeRate=()=>1+.06*treeRank('rate');
+const treeSpeed=()=>1+.04*treeRank('speed');
+const treeCritChance=()=>treeHas('crit')?.01+.02*treeRank('critChance'):0;
+const treeCritMult=()=>1.3+.2*treeRank('critPower');
+// a crit rolls per discrete hit. Continuous damage — the blade's edge, the shield's
+// field, laser burn — is left alone so a crit always reads as one big number.
+function critHit(dmg){
+  return (state&&state.critChance>0&&Math.random()<state.critChance)
+    ? {dmg:dmg*state.critMult,crit:true} : {dmg,crit:false};
+}
 const weaponData={laser:['PHOTON LANCE','#c879ff',.55,5],bomb:['PLASMA TORPEDO','#ff965d',3,.4],sword:['ORBITAL BLADE','#ffe17a',4,1],aegis:['DEFLECTOR SHIELD','#7ee0ff',1.5,1],arc:['ION ARC','#c8a2ff',3,1.05],mine:['GRAVITY MINE','#9d6bff',4,.55]};
 // weapons only a specific character brings; never offered as a normal unlock
 const exclusiveWeapons={aegis:'warden',arc:'revenant'};
@@ -1390,33 +1541,53 @@ const ultimateData={
   arc:['STORM LATTICE','Every discharge also forks to the two enemies nearest you.'],
   mine:['SINGULARITY COLLAPSE','The wreckage blinks back and collapses twice more, each blink dealing full damage to everything nearby.']
 };
+// built here rather than beside buildTree(): it reads weaponData, exclusiveWeapons
+// and ultimateData, all of which are declared above this point but below the builder
+const TREE_NODES=buildTree();
+const TREE_BY_ID={};for(const n of TREE_NODES)TREE_BY_ID[n.id]=n;
 function availableWeaponChoices(){
   const choices=[];
   for(const id of Object.keys(weaponUpgrades)){
     const w=state.weapons[id];
     if(!w){
       if(exclusiveWeapons[id])continue;
+      if(!treeHas('w:'+id))continue;                       // not bought in the tree, not in the draw
       choices.push({id,kind:'unlock',name:weaponData[id][0],desc:id==='laser'?'Unlocks a steady auto-targeting beam lance.':id==='bomb'?'Unlocks area-damage plasma torpedoes.':id==='sword'?'Unlocks a rotating close-range orbital blade.':'Unlocks thrown mines that crush enemies together before detonating.'});
     }else if(w.taken.length<5){
-      for(const u of weaponUpgrades[id])if(!w.taken.includes(u[0]))choices.push({id:u[0],kind:'weapon',weapon:id,name:u[1],desc:u[2]});
-    }else if(!w.ultimate){
+      for(const u of weaponUpgrades[id])if(!w.taken.includes(u[0])&&treeHas('u:'+id+':'+u[0]))choices.push({id:u[0],kind:'weapon',weapon:id,name:u[1],desc:u[2]});
+    }else if(!w.ultimate&&treeHas('ult:'+id)){
       choices.push({id:id+'-ultimate',kind:'ultimate',weapon:id,name:ultimateData[id][0],desc:ultimateData[id][1]});
     }
   }
   return choices;
 }
+// system upgrades the tree has unlocked and the run can still use
+function globalChoices(){
+  const out=[];
+  for(const id of Object.keys(GLOBALS)){
+    if(!treeHas('g:'+id))continue;
+    if(id==='dash'&&(state.globals.dash||!state.hasDash))continue;   // one-off, and pointless without the dash
+    out.push({id,kind:'global',name:GLOBALS[id].name,desc:GLOBALS[id].run});
+  }
+  return out;
+}
+// with nothing unlocked there is nothing a level-up could hand you, so the run
+// stops tracking XP entirely and the bar comes off the HUD
+const hasDraw=()=>availableWeaponChoices().length>0||globalChoices().length>0;
 function shuffle(items){for(let i=items.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[items[i],items[j]]=[items[j],items[i]];}return items;}
 function levelUp(){
   if(state.paused||state.upgradeOpen)return;
+  // work out the draw before spending anything: a level-up with no cards to show
+  // would burn the XP for nothing
+  const weaponChoices=availableWeaponChoices(), globals=globalChoices();
+  if(!weaponChoices.length&&!globals.length){state.hasDraw=false;return;}
   state.xp-=state.need;state.need=Math.floor(state.need*1.25);state.level++;state.paused=true;state.upgradeOpen=true;
   sfx('level');burst(player.x,player.y,'#9cf0bd',36,320,{size:3,drag:2.4});blasts.push({x:player.x,y:player.y,radius:200,life:.5,maxLife:.5,color:'#9cf0bd'});
-  const weaponChoices=availableWeaponChoices(),globals=[{id:'health',kind:'global',name:'REINFORCED HULL',desc:'Maximum health +25 and fully repairs.'},{id:'speed',kind:'global',name:'KINETIC THRUSTERS',desc:'Movement speed +18%.'},{id:'regen',kind:'global',name:'NANITE REPAIR',desc:'Health regeneration +2 per second.'}];
-  if(!state.globals.dash)globals.push({id:'dash',kind:'global',name:'SLIPSTREAM COILS',desc:'Dash carries you 60% further. Offered once.'});
   // a ready ultimate always gets a slot, but never crowds out the whole draw
   const ults=shuffle(weaponChoices.filter(u=>u.kind==='ultimate')).slice(0,2);
   const rest=shuffle(weaponChoices.filter(u=>u.kind!=='ultimate').concat(globals));
   const choices=ults.concat(rest).slice(0,3);
-  show('<div class="modal"><div class="eyebrow">ASCENSION // LEVEL '+state.level+'</div><h2>Choose an upgrade</h2><p>Each card shows the exact change it will make.</p><div class="cards">'+choices.map((u,i)=>'<div class="card'+(u.kind==='ultimate'?' ultimate':'')+'"><span class="card-key">0'+(i+1)+' // '+(u.kind==='ultimate'?'ULTIMATE':u.kind==='unlock'?'NEW WEAPON':'UPGRADE')+'</span><h3>'+u.name+'</h3><p>'+u.desc+'</p><button data-up="'+u.id+'">INSTALL</button></div>').join('')+'</div></div>');
+  show('<div class="modal"><div class="eyebrow">REFIT // LEVEL '+state.level+'</div><h2>Choose an upgrade</h2><p>Each card shows the exact change it will make.</p><div class="cards">'+choices.map((u,i)=>'<div class="card'+(u.kind==='ultimate'?' ultimate':'')+'"><span class="card-key">0'+(i+1)+' // '+(u.kind==='ultimate'?'ULTIMATE':u.kind==='unlock'?'NEW WEAPON':'UPGRADE')+'</span><h3>'+u.name+'</h3><p>'+u.desc+'</p><button data-up="'+u.id+'">INSTALL</button></div>').join('')+'</div></div>');
   document.querySelectorAll('[data-up]').forEach(b=>b.onclick=()=>upgrade(b.dataset.up));
 }
 function upgrade(id){
@@ -1430,7 +1601,7 @@ function upgrade(id){
     if(id==='regen')player.regen+=2;
     if(id==='dash'){sfx('pick');state.dashPower=1.6;state.dashCooldown=0;burst(player.x,player.y,pilotColor(),34,300,{size:3,drag:2.6});}
   }
-  else if(weaponData[id]){const nw=newWeapon(id);nw.damage*=state.charDamage||1;state.weapons[id]=nw;}
+  else if(weaponData[id]){state.weapons[id]=scaleWeapon(newWeapon(id));}
   else if(id.endsWith('-ultimate')){
     const weapon=id.replace('-ultimate',''),w=state.weapons[weapon];
     if(w&&!w.ultimate){
@@ -1443,11 +1614,13 @@ function upgrade(id){
     }
   }
   else {const weapon=id.split('-')[0],w=state.weapons[weapon],u=weaponUpgrades[weapon]&&weaponUpgrades[weapon].find(x=>x[0]===id);if(w&&u&&!w.taken.includes(id)){w.taken.push(id);w.upgrades++;w.level=w.upgrades;applyWeaponUpgrade(weapon,id);}}
+  state.hasDraw=hasDraw();      // taking one can empty the pool
   state.paused=false;hide();
 }
 function applyWeaponUpgrade(weapon,id){const w=state.weapons[weapon];if(weapon==='bow'){if(id==='bow-split')w.shots=(w.shots||1)+1;if(id==='bow-pierce')w.pierce=(w.pierce||0)+1;if(id==='bow-heavy')w.damage+=2;if(id==='bow-draw')w.rate*=1.35;if(id==='bow-seeker'){w.projectileSpeed=(w.projectileSpeed||540)*1.4;w.homing=true;}}if(weapon==='laser'){if(id==='laser-focus')w.damage+=.5;if(id==='laser-pulse')w.rate*=1.35;if(id==='laser-reach')w.range=(w.range||640)+260;if(id==='laser-scorch')w.linger=1.2;if(id==='laser-prism')w.split=true;}if(weapon==='bomb'){if(id==='bomb-radius')w.radius=(w.radius||135)+40;if(id==='bomb-cluster')w.double=true;if(id==='bomb-fuse')w.rate*=1.35;if(id==='bomb-impact')w.damage+=2;if(id==='bomb-pull')w.pull=true;}if(weapon==='aegis'){if(id==='aegis-radius')w.radius=(w.radius||125)+46;if(id==='aegis-power')w.damage+=1.4;if(id==='aegis-drag')w.drag=.55;if(id==='aegis-pulse'){w.pulse=true;w.pulseIn=2.2;}if(id==='aegis-plating')w.plating=true;}if(weapon==='arc'){if(id==='arc-chain')w.chain=(w.chain||1)+1;if(id==='arc-power')w.damage+=2.2;if(id==='arc-rate')w.rate*=1.3;if(id==='arc-reach')w.reach=(w.reach||320)+130;if(id==='arc-overload')w.overload=true;}if(weapon==='sword'){if(id==='sword-reach')w.reach=(w.reach||78)+26;if(id==='sword-spin')w.spin=(w.spin||4)*1.5;if(id==='sword-span')w.reach=(w.reach||78)*1.35;if(id==='sword-sharp')w.damage+=4;if(id==='sword-guard')w.guard=true;}if(weapon==='mine'){if(id==='mine-radius'){w.radius=(w.radius||160)+70;w.cap=(w.cap||MINE_CAP)+4;}if(id==='mine-power')w.damage+=4;if(id==='mine-haste')w.rate*=1.35;if(id==='mine-multi')w.multi=true;if(id==='mine-crush')w.crush=true;}
 }
-const globalInfo={health:['REINFORCED HULL','Maximum health +25 each'],speed:['KINETIC THRUSTERS','Movement speed +18% each'],regen:['NANITE REPAIR','Health regeneration +2/s each'],dash:['SLIPSTREAM COILS','Dash carries you 60% further']};
+const globalInfo={};
+for(const id of Object.keys(GLOBALS))globalInfo[id]=[GLOBALS[id].name,GLOBALS[id].each];
 const relicInfo={echo:['ECHO PHANTOM','A ghost mirrors your movement and fires with you.'],cloak:['PHASE CLOAK','Press E to phase out for 3 seconds.'],overdrive:['CORE OVERDRIVE','All weapons fire 25% faster.']};
 function loadoutMarkup(){
   const weapons=Object.keys(weaponUpgrades).filter(id=>state.weapons[id]||!exclusiveWeapons[id]).map(id=>{
@@ -1485,14 +1658,16 @@ let confirmingEnd=false;
 function bankAndPark(){
   recordRoom(state.room);
   const owed=Math.max(0,runReward()-(state.paidCredits||0));
+  const spOwed=skillOwed();
   state.paidCredits=runReward();
-  points+=owed;saveProfile();
+  state.paidSkill=skillReward(state.room,state.difficulty);
+  points+=owed;skill+=spOwed;saveProfile();saveTree();
   storeRun();
   const c=characters[state.character]||characters[STARTER];
   state.paused=true;
   show('<div class="modal"><div class="eyebrow">RUN PARKED</div><h2>Progress saved</h2>'
     +'<p>Room '+state.room+' &bull; '+state.kills+' hostiles cleared &bull; flying '+c.name+'</p>'
-    +'<div class="payout"><span>CREDITS BANKED <b>+'+owed+'</b></span><span>BALANCE <b>'+points+'</b></span></div>'
+    +'<div class="payout"><span>CREDITS BANKED <b>+'+owed+'</b></span><span>SKILL POINTS <b>+'+spOwed+'</b></span><span>BALANCE <b>'+points+'</b> &middot; <b>'+skill+' SP</b></span></div>'
     +'<p class="payout-note">Continue from the main menu whenever you like. Further credits are only paid for new ground.</p>'
     +'<button class="continue" id="parkResume">BACK TO THE RUN</button>'
     +'<button class="continue ghost" id="parkRoster">HANGAR</button>'
@@ -1522,12 +1697,14 @@ function gameOver(){
   clearRun();                      // a death cannot be continued
   recordRoom(state.room);
   const earned=Math.max(0,runReward()-(state.paidCredits||0)), c=characters[state.character]||characters[STARTER];
-  points+=earned;saveProfile();
+  const spEarned=skillOwed();
+  state.paidSkill=skillReward(state.room,state.difficulty);
+  points+=earned;skill+=spEarned;saveProfile();saveTree();
   const newlyAffordable=Object.keys(characters).filter(id=>!unlocked.has(id)&&points>=characters[id].cost&&points-earned<characters[id].cost);
   state.paused=true;
   show('<div class="modal"><div class="eyebrow">SIGNAL LOST</div><h2>Run terminated</h2>'
     +'<p>Room '+state.room+' &bull; '+state.kills+' hostiles cleared &bull; flying '+c.name+'</p>'
-    +'<div class="payout"><span>CREDITS EARNED <b>+'+earned+'</b> <em>&times;'+creditRate(state.difficulty)+' '+difficulties[state.difficulty].label+'</em></span><span>BALANCE <b>'+points+'</b></span><span>BEST ROOM <b>'+highscore+'</b></span></div>'
+    +'<div class="payout"><span>CREDITS EARNED <b>+'+earned+'</b> <em>&times;'+creditRate(state.difficulty)+' '+difficulties[state.difficulty].label+'</em></span><span>SKILL POINTS <b>+'+spEarned+'</b> <em>ROOM '+state.room+(skillRate(state.difficulty)!==1?' &times;'+skillRate(state.difficulty):'')+'</em></span><span>BALANCE <b>'+points+'</b> &middot; <b>'+skill+' SP</b></span><span>BEST ROOM <b>'+highscore+'</b></span></div>'
     +(earned?(newlyAffordable.length?'<p class="payout-note">You can now afford '+newlyAffordable.map(id=>characters[id].name).join(', ')+'.</p>':''):'<p class="payout-note warn">Runs only start paying once you get past room '+(CREDIT_MIN_ROOM-1)+'.</p>')
     +'<button class="continue" id="restart">REBOOT RUN</button>'
     +'<button class="continue ghost" id="toRoster">HANGAR</button>'
@@ -1538,12 +1715,13 @@ function gameOver(){
   $('#toStart').onclick=showHome;
 }
 function show(markup){ui.overlay.innerHTML=markup;ui.overlay.classList.remove('hidden');}function hide(){ui.overlay.classList.add('hidden');ui.overlay.innerHTML='';}
-function hud(){ui.hp.style.width=player.hp/player.maxHp*100+'%';ui.hpText.textContent=Math.ceil(player.hp)+' / '+player.maxHp;ui.xp.style.width=Math.min(100,state.xp/state.need*100)+'%';ui.xpText.textContent=Math.floor(state.xp)+' / '+state.need+' XP';ui.level.textContent='LV '+state.level;ui.kills.textContent=state.kills;paintBest();if(ui.arena)ui.arena.innerHTML='ROOM '+state.room+' <span>&bull;</span> BEST '+highscore;ui.timer.textContent=new Date(state.time*1000).toISOString().slice(14,19);ui.weapons.innerHTML=Object.values(state.weapons).map(w=>'<span class="weapon-item'+(w.ultimate?' ult':'')+'"><i class="weapon-dot" style="background:'+w.color+'"></i>'+w.name+' <small>'+(w.ultimate?'MAX':'★'+w.taken.length+(w.taken.length>=5?' ▲':''))+'</small></span>').join('');paintAbilities();}
+function hud(){ui.hp.style.width=player.hp/player.maxHp*100+'%';ui.hpText.textContent=Math.ceil(player.hp)+' / '+player.maxHp;if(ui.xpHud)ui.xpHud.style.display=state.hasDraw?'':'none';ui.xp.style.width=Math.min(100,state.xp/state.need*100)+'%';ui.xpText.textContent=Math.floor(state.xp)+' / '+state.need+' XP';ui.level.textContent='LV '+state.level;ui.kills.textContent=state.kills;paintBest();if(ui.arena)ui.arena.innerHTML='ROOM '+state.room+' <span>&bull;</span> BEST '+highscore;ui.timer.textContent=new Date(state.time*1000).toISOString().slice(14,19);ui.weapons.innerHTML=Object.values(state.weapons).map(w=>'<span class="weapon-item'+(w.ultimate?' ult':'')+'"><i class="weapon-dot" style="background:'+w.color+'"></i>'+w.name+' <small>'+(w.ultimate?'MAX':'★'+w.taken.length+(w.taken.length>=5?' ▲':''))+'</small></span>').join('');paintAbilities();}
 function paintAbilities(){
   const dash=ui.dashRow, text=ui.dashText, phase=ui.phaseRow, ptext=ui.phaseText;
   if(dash&&text){
     let cls='ability'+(state.globals.dash?' boosted':'');
-    if(state.dashTime>0){text.textContent='DASHING';cls+=' active';}
+    if(!state.hasDash){text.textContent='LOCKED';cls+=' locked';}
+    else if(state.dashTime>0){text.textContent='DASHING';cls+=' active';}
     else if(state.dashCooldown>0){text.textContent=state.dashCooldown.toFixed(1)+'s';cls+=' cooldown';}
     else {text.textContent='READY';cls+=' ready';}
     dash.className=cls;
@@ -1564,9 +1742,12 @@ function drawDamageNumbers(){
   for(const d of damageNumbers){
     const k=clamp(d.life/.6,0,1);
     ctx.globalAlpha=Math.min(1,k*1.7);
-    ctx.font="bold "+(15+(1-k)*4).toFixed(1)+"px 'DM Mono', monospace";
-    ctx.fillStyle='rgba(6,10,19,.55)';ctx.fillText(d.n,d.x+1.5,d.y+1.5);
-    ctx.fillStyle=d.color;ctx.fillText(d.n,d.x,d.y);
+    ctx.font="bold "+((d.crit?22:15)+(1-k)*4).toFixed(1)+"px 'DM Mono', monospace";
+    const label=d.crit?d.n+'!':d.n;
+    ctx.fillStyle='rgba(6,10,19,.55)';ctx.fillText(label,d.x+1.5,d.y+1.5);
+    if(d.crit){ctx.shadowColor='#ffe17a';ctx.shadowBlur=12;}
+    ctx.fillStyle=d.crit?'#fff6c9':d.color;ctx.fillText(label,d.x,d.y);
+    ctx.shadowBlur=0;
   }
   ctx.restore();
 }
@@ -2620,7 +2801,7 @@ const demos=[
       g.save();
       g.font="bold 10px 'DM Mono', monospace";g.textAlign='center';g.textBaseline='middle';
       if(t>2.6){g.globalAlpha=Math.min(1,(t-2.6)*4)*(1-Math.max(0,(t-3.6))*2.5);g.fillStyle='#9cf0bd';g.fillText('LEVEL UP',135,100);}
-      else {g.fillStyle='#5d6c85';g.fillText('ASCENSION',135,102);}
+      else {g.fillStyle='#5d6c85';g.fillText('REFIT',135,102);}
       g.restore();
     }},
   { title:'BUILD YOUR LOADOUT', period:5,
@@ -2747,22 +2928,27 @@ function showHome(){
   closeHowTo();
   confirmingReset=false;
   const c=characters[chosen]||characters[STARTER];
-  show('<div class="modal home">'
+  show('<button class="dev-toggle'+(devMode?' on':'')+'" id="devBtn" title="Developer mode">'+(devMode?'DEV MODE ON':'DEV')+'</button>'
+    +'<div class="modal home">'
     +'<div class="eyebrow">SHAPESHIFT</div>'
     +'<h1 class="home-title">NEON SURVIVORS</h1>'
     +'<p>Descend through the rooms. Everything in here wants your hull.</p>'
-    +'<div class="home-stats"><span>BEST ROOM <b>'+highscore+'</b></span><span>CREDITS <b>'+points+'</b></span><span>PILOT <b style="color:'+c.color+'">'+c.name+'</b></span></div>'
+    +'<div class="home-stats"><span>BEST ROOM <b>'+highscore+'</b></span><span>CREDITS <b>'+points+'</b></span><span>SKILL <b'+(devMode?' class="dev"':'')+'>'+(devMode?'DEV':skill)+'</b></span><span>AIRCRAFT <b style="color:'+c.color+'">'+c.name+'</b></span></div>'
     +(savedRun?'<div class="home-run"><span>RUN IN PROGRESS</span><b>ROOM '+savedRun.room+'</b><i>'+((characters[savedRun.character]||characters[STARTER]).name)+' &bull; '+difficulties[savedRun.difficulty].label+'</i></div>':'')
     +'<div class="home-actions">'
       +(savedRun
         ? '<button class="continue big" id="homeContinue">CONTINUE RUN</button>'
           +'<button class="continue ghost" id="homePlay">'+(confirmingNew?'START OVER? THIS ENDS THE SAVED RUN':'NEW RUN')+'</button>'
         : '<button class="continue big" id="homePlay">PLAY</button>')
+      +'<button class="continue ghost" id="homeTree">UPGRADE TREE'+(treeAffordable()?' <em class="pip">'+treeAffordable()+'</em>':'')+'</button>'
       +'<button class="continue ghost" id="homeHow">HOW TO PLAY</button>'
       +'<button class="continue ghost" id="homeRoster">HANGAR'+(affordableCount()?' <em class="pip">'+affordableCount()+'</em>':'')+'</button>'
     +'</div>'
   +'</div>');
+  $('#homeTree').onclick=()=>{sfx('ui');showTree();};
+  $('#devBtn').onclick=()=>{sfx('ui');if(devMode){exitDev();showHome();}else showDevPrompt();};
   $('#homePlay').onclick=()=>{sfx('ui');
+    if(!treeHas('w:bow')){showTree();return;}      // cannot fly without the cannon
     if(savedRun&&!confirmingNew){confirmingNew=true;showHome();return;}
     confirmingNew=false;
     if(savedRun)clearRun();
@@ -2786,10 +2972,10 @@ function showRoster(){
       +'<p class="pilot-blurb">'+c.blurb+'</p>'+perks+action+'</div>';
   }).join('');
   show('<div class="modal wide">'
-    +'<div class="eyebrow">HANGAR</div><h2>Pilots</h2>'
+    +'<div class="eyebrow">HANGAR</div><h2>Aircraft</h2>'
     +'<p>Credits are earned by finishing runs. Deeper rooms and harder settings pay more.</p>'
     +'<div class="lo-stats"><span>CREDITS <b>'+points+'</b></span><span>UNLOCKED <b>'+unlocked.size+' / '+Object.keys(characters).length+'</b></span></div>'
-    +(savedRun?'<p class="pilot-lock">A run is in progress on room '+savedRun.room+'. It keeps flying '+((characters[savedRun.character]||characters[STARTER]).name)+' &mdash; finish or restart it to change pilot.</p>':'')
+    +(savedRun?'<p class="pilot-lock">A run is in progress on room '+savedRun.room+'. It keeps flying '+((characters[savedRun.character]||characters[STARTER]).name)+' &mdash; finish or restart it to change aircraft.</p>':'')
     +'<div class="pilots">'+cards+'</div>'
     +'<button class="continue ghost" id="rosterBack">BACK</button>'
   +'</div>');
@@ -2818,25 +3004,153 @@ function resetSavedData(){
   localStorage.removeItem('shapeshift_points');
   localStorage.removeItem('shapeshift_unlocked');
   localStorage.removeItem('shapeshift_character');
+  localStorage.removeItem('shapeshift_skill');
+  localStorage.removeItem('shapeshift_tree');
   clearRun();
-  highscore=1;points=0;unlocked=new Set([STARTER]);chosen=STARTER;
+  highscore=1;points=0;skill=0;tree={};unlocked=new Set([STARTER]);chosen=STARTER;
   paintBest();
 }
 function showStart(){
   closeHowTo();
   const pilot=characters[chosen]||characters[STARTER];
-  const hardBeaten = localStorage.getItem('shapeshift_hard_beaten') === 'true';
+  const hardStored = localStorage.getItem('shapeshift_hard_beaten') === 'true';
+  const hardAvailable = hardStored || devMode;
   const resetRow = confirmingReset
-    ? '<div class="reset-row confirming"><span>Erase your best room, '+points+' credits and '+unlocked.size+' unlocked pilot'+(unlocked.size===1?'':'s')+(hardBeaten?', and re-lock IMPOSSIBLE':'')+'? This cannot be undone.</span><button id="resetNo">CANCEL</button><button id="resetYes" class="danger">ERASE</button></div>'
-    : '<div class="reset-row"><span>BEST ROOM <b>'+highscore+'</b> <i>&bull;</i> '+points+' CREDITS'+(hardBeaten?' <i>&bull;</i> IMPOSSIBLE UNLOCKED':'')+'</span><button id="resetData">RESET DATA</button></div>';
-  show('<div class="modal"><div class="eyebrow">SHAPESHIFT // NEON SURVIVORS</div><h2>Choose your difficulty</h2><p>Flying as <b style="color:PILOTCOLOR">PILOTNAME</b> &middot; WASD or arrows to move, SHIFT to dash. Your cannon fires itself.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>14% less enemy health, 12% slower, 15% softer hits, and a thinner crowd.</p><p class="pay">CREDITS &times;0.7</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Baseline health, speed, damage and numbers. The intended run.</p><p class="pay">CREDITS &times;1</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>+28% health, +20% speed, +35% damage, +22% more enemies and a nastier mix of them.</p><p class="pay">CREDITS &times;1.75</p><button data-difficulty="hard">START HARD</button></div>' + (hardBeaten ? '<div class="card" style="border-color:#ff0000; box-shadow: 0 0 15px #ff000044;"><span class="card-key" style="color:#ff4f9a">04 // ELITE</span><h3 style="color:#ff4f9a">IMPOSSIBLE</h3><p>Triple health, +80% speed, double damage, half again as many enemies &mdash; and touching a boss kills you outright.</p><p class="pay hot">CREDITS &times;3</p><button data-difficulty="impossible" style="background:#ff4f9a">START IMPOSSIBLE</button></div>' : '') + '</div>' + resetRow + '<button class="continue ghost" id="startBack">BACK</button></div>');
+    ? '<div class="reset-row confirming"><span>Erase your best room, '+points+' credits and '+unlocked.size+' unlocked pilot'+(unlocked.size===1?'':'s')+(hardStored?', and re-lock IMPOSSIBLE':'')+'? This cannot be undone.</span><button id="resetNo">CANCEL</button><button id="resetYes" class="danger">ERASE</button></div>'
+    : '<div class="reset-row"><span>BEST ROOM <b>'+highscore+'</b> <i>&bull;</i> '+points+' CREDITS'+(hardStored?' <i>&bull;</i> IMPOSSIBLE UNLOCKED':devMode?' <i>&bull;</i> IMPOSSIBLE VIA DEV':'')+'</span><button id="resetData">RESET DATA</button></div>';
+  show('<div class="modal"><div class="eyebrow">SHAPESHIFT // NEON SURVIVORS</div><h2>Choose your difficulty</h2><p>Flying as <b style="color:PILOTCOLOR">PILOTNAME</b> &middot; WASD or arrows to move'+(treeHas('dashDrive')?', SHIFT to dash':'')+'. Your cannon fires itself.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>14% less enemy health, 12% slower, 15% softer hits, and a thinner crowd.</p><p class="pay">CREDITS &times;0.7</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Baseline health, speed, damage and numbers. The intended run.</p><p class="pay">CREDITS &times;1</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>+28% health, +20% speed, +35% damage, +22% more enemies and a nastier mix of them.</p><p class="pay">CREDITS &times;1.75</p><button data-difficulty="hard">START HARD</button></div>' + (!hardAvailable ? '<div class="card card-locked"><span class="card-key">04 // LOCKED</span><h3>IMPOSSIBLE</h3><p>Clear room '+IMPOSSIBLE_ROOM+' on any difficulty to unlock. It pays double skill points.</p><p class="pay">BEST ROOM '+highscore+' / '+IMPOSSIBLE_ROOM+'</p></div>' : '')
+    + (hardAvailable ? '<div class="card" style="border-color:#ff0000; box-shadow: 0 0 15px #ff000044;"><span class="card-key" style="color:#ff4f9a">04 // '+(hardStored?'ELITE':'DEV')+'</span><h3 style="color:#ff4f9a">IMPOSSIBLE</h3><p>Triple health, +80% speed, double damage, half again as many enemies &mdash; and touching a boss kills you outright.</p><p class="pay hot">CREDITS &times;3 &middot; SKILL &times;2</p><button data-difficulty="impossible" style="background:#ff4f9a">START IMPOSSIBLE</button></div>' : '') + '</div>' + resetRow + '<button class="continue ghost" id="startBack">BACK</button></div>');
   ui.overlay.innerHTML=ui.overlay.innerHTML.replace('PILOTCOLOR',pilot.color).replace('PILOTNAME',pilot.name);
-  document.querySelectorAll('[data-difficulty]').forEach(b=>b.onclick=()=>{confirmingReset=false;clearRun();reset(b.dataset.difficulty);});
+  document.querySelectorAll('[data-difficulty]').forEach(b=>b.onclick=()=>{
+    if(!treeHas('w:bow')){showTree();return;}      // no weapon, no run
+    confirmingReset=false;clearRun();reset(b.dataset.difficulty);});
   $('#startBack').onclick=showHome;
   const ask=$('#resetData'),no=$('#resetNo'),yes=$('#resetYes');
   if(ask)ask.onclick=()=>{confirmingReset=true;showStart();};
   if(no)no.onclick=()=>{confirmingReset=false;showStart();};
-  if(yes)yes.onclick=()=>{resetSavedData();confirmingReset=false;showStart();};
+  if(yes)yes.onclick=()=>{resetSavedData();confirmingReset=false;showTree();};   // wiped: the cannon has to be taken again
+}
+// ---- upgrade tree screen ------------------------------------------------
+const treeAffordable=()=>devMode?0:TREE_NODES.filter(nodeBuyable).length;   // nodeBuyable already excludes hidden groups
+// zero anything whose prerequisite has gone away, repeatedly, so dev toggles
+// can never leave the tree in a state a normal purchase could not reach
+function pruneTree(){
+  for(let pass=0;pass<8;pass++){
+    let changed=false;
+    for(const n of TREE_NODES)if(treeHas(n.id)&&!nodeReqMet(n)){tree[n.id]=0;changed=true;}
+    if(!changed)break;
+  }
+}
+function treeNodeHtml(n){
+  const rank=treeRank(n.id), maxed=nodeMaxed(n), reqOk=nodeReqMet(n), cost=nodeCost(n);
+  const cls=maxed?'own':devMode?'buy':!reqOk?'lock':skill>=cost?'buy':'poor';
+  const pips=n.max>1?'<span class="tn-pips">'+Array.from({length:n.max},(_,i)=>'<i'+(i<rank?' class="on"':'')+'></i>').join('')+'</span>':'';
+  const granted=nodeGranted(n.id);
+  const meta=granted?'INCLUDED':maxed?(n.max>1?'MAX':'OWNED'):(cost===0?'FREE':cost+' SP');
+  const missing=n.req.filter(r=>!treeHas(r)).map(r=>TREE_BY_ID[r].name);
+  const times=granted
+    ? 'Arrives with '+characters[n.grantedBy].name+' at no cost &mdash; nothing to buy here'
+    : n.max>1
+      ? 'Can be taken '+n.max+' times &mdash; '+rank+' taken'+(maxed?', fully upgraded':', '+(n.max-rank)+' still available')
+      : (maxed?'Taken &mdash; this one is a single unlock':'Can be taken once');
+  const step=PASSIVE_STEP[n.id]?'<em class="tip-step">Per rank: '+PASSIVE_STEP[n.id]+'</em>':'';
+  const tip='<span class="tip"><b>'+n.name+'</b><em>'+n.desc+'</em>'+step+'<i>'+times+'</i>'
+    +(maxed?'':'<u>'+(cost===0?'Costs nothing':'Costs '+cost+' SP'+(skill<cost&&!devMode?' &mdash; you have '+skill:''))+'</u>')
+    +(missing.length?'<s>Needs '+missing.join(' + ')+'</s>':'')+'</span>';
+  return '<button class="tnode '+cls+(n.ult?' ult':'')+'" data-node="'+n.id+'" style="--nc:'+(n.color||'#7fd6ff')+'">'
+    +'<span class="tn-name">'+n.name+'</span><span class="tn-meta">'+meta+'</span>'+pips+tip+'</button>';
+}
+function treeWeaponGroup(id,nodes){
+  return '<div class="tgroup"><div class="tg-head"><i style="background:'+nodes[0].color+'"></i><b>'+nodes[0].name+'</b>'
+    +'<span class="tg-tier">TIER '+(WEAPON_TIER[id]+1)+'</span></div>'
+    +'<div class="trow">'+nodes.map(treeNodeHtml).join('')+'</div></div>';
+}
+function showTree(){
+  closeHowTo();
+  const started=treeHas('w:bow');
+  const groups={};
+  for(const n of TREE_NODES)(groups[n.group]||(groups[n.group]=[])).push(n);
+  const shown=TREE_NODES.filter(nodeVisible);
+  const taken=shown.reduce((a,n)=>a+treeRank(n.id),0);
+  const total=shown.reduce((a,n)=>a+n.max,0);
+  const section=(title,note,body)=>'<div class="tbranch"><div class="tb-head"><b>'+title+'</b><span>'+note+'</span></div>'+body+'</div>';
+  const byBranch=b=>TREE_NODES.filter(n=>n.branch===b).map(treeNodeHtml).join('');
+
+  let body;
+  if(!started){
+    // the very first screen: one node, and nothing else to think about yet
+    body=section('CORE ARMAMENT','the cannon you always carry',
+      '<div class="trow">'+treeNodeHtml(TREE_BY_ID['w:bow'])+'</div>')
+      +'<p class="tree-gate">Take the cannon &mdash; it is free. Everything else on this tree opens up once you have it, and is paid for with skill points earned by surviving rooms.</p>';
+  }else{
+    body=section('CORE ARMAMENT','the cannon you always carry','<div class="trow">'+groups.bow.map(treeNodeHtml).join('')+'</div>')
+      +section('ARMAMENTS','unlock weapons so runs can offer them',
+        ['laser','bomb','sword','mine','aegis','arc'].filter(id=>!exclusiveWeapons[id]||unlocked.has(exclusiveWeapons[id]))
+          .map(id=>treeWeaponGroup(id,groups[id])).join(''))
+      +section('SYSTEMS','airframe upgrades a level-up can hand you mid-run','<div class="trow">'+byBranch('systems')+'</div>')
+      +section('AMPLIFIERS','raw damage, and the critical hits it opens','<div class="trow">'+byBranch('amp')+'</div>')
+      +section('CADENCE','how fast everything you carry fires','<div class="trow">'+byBranch('rate')+'</div>')
+      +section('VELOCITY','how fast the airframe moves','<div class="trow">'+byBranch('speed')+'</div>');
+  }
+  show('<div class="modal wide tree-modal">'
+    +'<div class="eyebrow">UPGRADE TREE</div><h2>Systems</h2>'
+    +'<div class="tree-bar"><span>SKILL POINTS <b'+(devMode?' class="dev"':'')+'>'+(devMode?'DEV':skill)+'</b></span>'
+      +'<span>UNLOCKED <b>'+taken+' / '+total+'</b></span>'
+      +'<span class="tree-hint">'+(devMode?'Dev mode: click any node to toggle it':'Hover a node for detail')+'</span></div>'
+    +'<div class="tree">'+body+'</div>'
+    +(started?'<button class="continue" id="treeBack">BACK</button>':'')
+  +'</div>');
+  document.querySelectorAll('[data-node]').forEach(b=>b.onclick=()=>{
+    const id=b.dataset.node, n=TREE_BY_ID[id];
+    if(!n)return;
+    if(devMode){
+      tree[id]=treeRank(id)>=n.max?0:treeRank(id)+1;
+      if(!treeHas(id))pruneTree();
+      sfx('ui');showTree();return;
+    }
+    if(!nodeBuyable(n)){sfx('hurt');return;}
+    buyNode(id);
+    sfx(n.ult?'ult':'level');
+    showTree();
+  });
+  const back=$('#treeBack'); if(back)back.onclick=()=>{sfx('ui');showHome();};
+}
+// ---- developer mode -----------------------------------------------------
+// a sandbox: the real profile is held aside in memory and nothing is written to
+// disk while it is on, so leaving dev mode hands the account back untouched
+function enterDev(){
+  if(devMode)return;
+  devBackup={points,skill,highscore,chosen,unlocked:new Set(unlocked),tree:Object.assign({},tree)};
+  devMode=true;
+  for(const id of Object.keys(characters))unlocked.add(id);
+  toast('DEVELOPER MODE ON');
+}
+function exitDev(){
+  if(!devMode)return;
+  devMode=false;
+  points=devBackup.points;skill=devBackup.skill;highscore=devBackup.highscore;
+  chosen=devBackup.chosen;unlocked=devBackup.unlocked;tree=devBackup.tree;
+  devBackup=null;
+  savedRun=loadRun();                     // whatever was on disk before we started
+  paintBest();
+  toast('DEVELOPER MODE OFF &mdash; PROFILE RESTORED');
+}
+function showDevPrompt(){
+  show('<div class="modal dev-modal"><div class="eyebrow">DEVELOPER</div><h2>Enter password</h2>'
+    +'<p>Unlocks every pilot and lets you switch any tree node on or off. Your saved profile is set aside while it is on, and handed straight back when you leave.</p>'
+    +'<input id="devPass" class="dev-input" type="password" autocomplete="off" spellcheck="false" placeholder="PASSWORD">'
+    +'<div class="dev-msg" id="devMsg"></div>'
+    +'<button class="continue" id="devGo">ENTER</button>'
+    +'<button class="continue ghost" id="devCancel">CANCEL</button></div>');
+  const go=()=>{
+    const el=$('#devPass');
+    if(el&&el.value==='bunnybob'){enterDev();showHome();}
+    else{const m=$('#devMsg');if(m)m.textContent='WRONG PASSWORD';sfx('hurt');}
+  };
+  $('#devGo').onclick=go;
+  $('#devCancel').onclick=()=>{sfx('ui');showHome();};
+  const inp=$('#devPass');
+  if(inp){inp.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go();}};if(inp.focus)inp.focus();}
 }
 const fsTarget=()=>document.querySelector('.game-wrap');
 const fsActive=()=>!!(document.fullscreenElement||document.webkitFullscreenElement);
@@ -2868,4 +3182,4 @@ paintSoundBtn();
 // browsers only allow audio to start from a gesture, so open the context on the first one
 addEventListener('pointerdown',()=>{if(soundOn)initAudio();},{once:true});
 $('#pauseBtn').onclick=pause;
-paintBest();showHome();requestAnimationFrame(frame);
+paintBest();if(treeHas('w:bow'))showHome();else showTree();requestAnimationFrame(frame);
