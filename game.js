@@ -126,24 +126,24 @@ const bossOrder = [
   { id:'hollow',   name:'HOLLOW',   hpMult:.86,  contact:30, blurb:'Shields itself, calls escorts, rings' }
 ];
 const bossForRoom = room => bossOrder[(Math.max(1,Math.floor(room/10))-1) % bossOrder.length];
-let player, enemies, arrows, enemyBullets, stars, particles, blasts, echoShots, damageNumbers, delayedBlasts, strikes, rings, pulses, beams, mines, state;
+let player, enemies, arrows, enemyBullets, stars, particles, blasts, echoShots, damageNumbers, delayedBlasts, strikes, rings, pulses, beams, mines, wells, state;
 // ---- roster -------------------------------------------------------------
 // hp/speed are multipliers on the 100hp / 288px-per-second baseline.
 // `weapon` grants a weapon nobody else can be offered.
 const characters = {
-  drifter:   { name:'DRIFTER',    cost:0,    hp:1,    speed:1,    color:'#55e6ff', tag:'BALANCED', sides:6, mark:'none',
+  drifter:   { name:'DRIFTER',    cost:0,    hp:1,    speed:1,    color:'#55e6ff', tag:'BALANCED', plane:'fighter', sides:6, mark:'none',
                blurb:'The standard frame. No strengths, no holes.', perks:[] },
-  bulwark:   { name:'BULWARK',    cost:200,  hp:1.5,  speed:.8,   color:'#6de0bd', tag:'HEAVY', regen:2, sides:8, mark:'plate',
+  bulwark:   { name:'BULWARK',    cost:200,  hp:1.5,  speed:.8,   color:'#6de0bd', tag:'HEAVY', regen:2, plane:'bomber', sides:8, mark:'plate',
                blurb:'Armour plating traded for pace.', perks:['+50% hull','-20% speed','+2 regen/s'] },
-  skirmisher:{ name:'SKIRMISHER', cost:200,  hp:.7,   speed:1.25, color:'#ffc857', tag:'FRAGILE', dashCd:2, dashPower:1.25, sides:3, mark:'fins',
+  skirmisher:{ name:'SKIRMISHER', cost:200,  hp:.7,   speed:1.25, color:'#ffc857', tag:'FRAGILE', dashCd:2, dashPower:1.25, plane:'jet', sides:3, mark:'fins',
                blurb:'Fast and thin. Dying is the only real mistake.', perks:['-30% hull','+25% speed','dash recharges in 2s','dash 25% further'] },
-  archivist: { name:'ARCHIVIST',  cost:450,  hp:.88,  speed:1.05, color:'#a6d8ff', tag:'SCHOLAR', sides:5, mark:'motes', xp:1.3,
+  archivist: { name:'ARCHIVIST',  cost:450,  hp:.88,  speed:1.05, color:'#a6d8ff', tag:'SCHOLAR', plane:'recon', sides:5, mark:'motes', xp:1.3,
                blurb:'Reads the remnants faster than anyone. Levels early, levels often.', perks:['+30% XP gained','-12% hull','+5% speed'] },
-  warden:    { name:'WARDEN',     cost:800,  hp:1.2,  speed:.92,  color:'#7ee0ff', tag:'GUARDIAN', sides:6, mark:'plate', weapon:'aegis',
+  warden:    { name:'WARDEN',     cost:800,  hp:1.2,  speed:.92,  color:'#7ee0ff', tag:'GUARDIAN', plane:'gunship', sides:6, mark:'plate', weapon:'aegis',
                blurb:'Carries a deflector projector. Nothing gets close without paying for it.', perks:['exclusive: DEFLECTOR SHIELD','+20% hull','-8% speed'] },
-  revenant:  { name:'REVENANT',   cost:1000, hp:.8,   speed:1.1,  color:'#c879ff', tag:'VOLATILE', sides:4, mark:'sparks', weapon:'arc',
+  revenant:  { name:'REVENANT',   cost:1000, hp:.8,   speed:1.1,  color:'#c879ff', tag:'VOLATILE', plane:'delta', sides:4, mark:'sparks', weapon:'arc',
                blurb:'Wired to an ion arc that leaps between targets.', perks:['exclusive: ION ARC','-20% hull','+10% speed'] },
-  paragon:   { name:'PARAGON',    cost:1200, hp:1.05, speed:1,    color:'#ffe17a', tag:'APEX', sides:6, mark:'star', damage:1.2, xp:1.2,
+  paragon:   { name:'PARAGON',    cost:1200, hp:1.05, speed:1,    color:'#ffe17a', tag:'APEX', plane:'apex', sides:6, mark:'star', damage:1.2, xp:1.2,
                blurb:'Every system tuned past spec. Expensive for a reason.', perks:['+20% weapon damage','+20% XP gained','+5% hull'] }
 };
 const STARTER='drifter';
@@ -247,7 +247,7 @@ function reset(difficulty = 'medium') {
   const c = characters[chosen] || characters[STARTER];
   const maxHp = Math.round(100 * c.hp);
   player = { x: RW / 2, y: RH / 2, r: 16, hp: maxHp, maxHp, speed: Math.round(288 * c.speed), regen: 3 + (c.regen || 0), hurtAt: -10, aim: 0, heading: 0, thrust: 0, vx: 0, vy: 0 };
-  enemies = []; arrows = []; enemyBullets = []; stars = []; particles = []; blasts = []; delayedBlasts = []; echoShots = []; damageNumbers = []; strikes = []; rings = []; pulses = []; beams = []; mines = [];
+  enemies = []; arrows = []; enemyBullets = []; stars = []; particles = []; blasts = []; delayedBlasts = []; echoShots = []; damageNumbers = []; strikes = []; rings = []; pulses = []; beams = []; mines = []; wells = [];
   state = { difficulty, last: performance.now(), time: 0, room: 1, level: 1, xp: 0, need: 60, kills: 0, left: 0, spawnIn: 0, active: true, paused: false, upgradeOpen: false, intermission: false, transitioning: false, roomTransition: 0, exit: null, relicRooms: {}, globals: {}, relicsTaken: [], relicOpen: false, vacuum: false, beatBest: false, over: false, dying: 0, hitStop: 0, beatIn: 0, lowPulse: 0, knockX: 0, knockY: 0, knockT: 0, paidCredits: 0, portalArm: 0, history: [], echo: null, cloakTime: 0, cloakCooldown: 0, bowIn: 0, laserIn: 0, bombIn: 0, mineIn: 0, dashCooldown: 0, dashTime: 0, dashX: 0, dashY: 0, dashPower: 1, dashCd: 3, arcIn: 0, character: STARTER, charXp: 1, charDamage: 1, lastMoveX: 1, lastMoveY: 0, shake: 0, playerAlpha: 1, screenAlpha: 0, cameraZoom: 1, zoomCenterX: RW/2, zoomCenterY: RH/2, victoryPortal: null, victorySequence: null, victoryTimer: 0, roomBanner: null, cameraRot: 0, flash: 0, warp: null, suckR: 0, suckA: 0, suckDir: 1, portalCharge: 0, hurtFlash: 0, weapons: { bow: { name: 'VULCAN CANNON', color: '#55e6ff', damage: 2, rate: 1.3, level: 0, upgrades: 0, taken: [], ultimate: false } } };
   state.character=chosen;
   state.charXp=c.xp||1;
@@ -379,8 +379,8 @@ function fire() {
   const target=nearest(); if(!target)return;
   player.aim=ang(player,target); const w=state.weapons.bow;
   const shotCount=(w.shots||1)+(w.ultimate?2:0), speed=w.projectileSpeed||620;
-  // every round leaves the nose along the shuttle's heading, then banks toward its target
-  const h=player.heading, nx=player.x+Math.cos(h)*player.r*1.8, ny=player.y+Math.sin(h)*player.r*1.8, perp=h+Math.PI/2;
+  // every round leaves the nose along the plane's heading, then banks toward its target
+  const h=player.heading, muzzle=player.r*1.8*PLANE_SCALE, nx=player.x+Math.cos(h)*muzzle, ny=player.y+Math.sin(h)*muzzle, perp=h+Math.PI/2;
   for(let i=0;i<shotCount;i++){
     const lane=shotCount>1?i-(shotCount-1)/2:0;
     const a=h+lane*.15;
@@ -571,7 +571,7 @@ function update(dt,real) {
     while(diff<-Math.PI)diff+=Math.PI*2;while(diff>Math.PI)diff-=Math.PI*2;
     player.aim+=diff*15*dt;
   }
-  // the shuttle noses toward whatever it is shooting at — or into its direction of
+  // the plane noses toward whatever it is shooting at — or into its direction of
   // travel when nothing is in range — and throttles up while moving
   {
     const dashing=state.dashTime>0, sp=Math.hypot(player.vx,player.vy);
@@ -590,7 +590,7 @@ function update(dt,real) {
   if(state.active&&state.left>0){state.spawnIn-=dt;if(state.spawnIn<=0){spawn();state.left--;state.spawnIn=Math.max(.16,(.55-state.room*.02)/((difficulties[state.difficulty]||difficulties.medium).mass||1));}}
   state.bowIn-=dt;if(state.bowIn<=0){fire();state.bowIn=1/state.weapons.bow.rate;}
   for(const e of enemies) moveEnemy(e,dt);
-  weapons(dt); updateArrows(dt); updateEchoShots(dt); updateEnemyBullets(dt); updateStars(dt); deaths(); updateParticles(dt); updateBlasts(dt); updateDelayedBlasts(dt); updateMines(dt); updateStrikes(dt); updateRings(dt); updatePulses(dt); updateBeams(dt); updateDamageNumbers(dt);
+  weapons(dt); updateArrows(dt); updateEchoShots(dt); updateEnemyBullets(dt); updateStars(dt); deaths(); updateParticles(dt); updateBlasts(dt); updateDelayedBlasts(dt); updateMines(dt); updateWells(dt); updateStrikes(dt); updateRings(dt); updatePulses(dt); updateBeams(dt); updateDamageNumbers(dt);
   if(state.active&&state.left===0&&enemies.length===0) finishRoom();
   if(player.hp<=0&&!state.dying&&!state.over){
     state.dying=1.05;
@@ -1092,27 +1092,66 @@ function detonate(w,x,y,radius,damage,followUp){
   for(const e of enemies)if(dist(e,{x,y})<radius){
     e.hp-=damage;e.flash=.18;
     spawnDamageNumber(e.x,e.y,Math.ceil(damage),w.color);
-    if(w.pull){e.x+=(x-e.x)*.26;e.y+=(y-e.y)*.26;}
   }
   blasts.push({x,y,radius,life:.42,maxLife:.42,color:w.color});
   burst(x,y,w.color,26,240,{size:3.2,drag:2.6});
   burst(x,y,'#fff2d6',10,120,{size:2.2,drag:4});
   shake(8);hitStop(.045);sfx('boom');
+  // GRAVITY WELL: the crater keeps pulling after the flash, dragging survivors — and
+  // anything that was standing just outside the blast — into the centre. With CLUSTER
+  // CORE the follow-up detonation then lands on a clump instead of a scattered field.
+  if(w.pull)spawnWell(x,y,radius*1.3,300,.55,w.color);
   if(followUp)delayedBlasts.push({x,y,radius,timer:followUp.timer,damage:followUp.damage,color:w.color});
+}
+// a well can only haul so many shapes at once: the nearest `cap` are caught, and
+// anything past that walks straight through the field
+const MINE_CAP=5, WELL_CAP=6;
+function grip(x,y,radius,cap){
+  const found=[];
+  for(const e of enemies){
+    const d=Math.hypot(e.x-x,e.y-y);
+    if(d<=radius)found.push({e,d});
+  }
+  found.sort((a,b)=>a.d-b.d);
+  return found.slice(0,cap);
+}
+// a short-lived pull with no detonation of its own — what a bomb crater leaves behind
+function spawnWell(x,y,radius,force,life,color,cap){
+  wells.push({x,y,radius,force,life,maxLife:life,color,cap:cap||WELL_CAP,held:0});
+}
+function updateWells(dt){
+  for(const wl of wells){
+    wl.life-=dt;
+    const caught=grip(wl.x,wl.y,wl.radius,wl.cap);
+    wl.held=caught.length;
+    for(const {e,d} of caught){
+      if(d<1)continue;
+      const pull=wl.force*(1-clamp(d/wl.radius,0,1)*.5)*(e.boss?.3:1);   // bosses barely budge
+      e.x+=(wl.x-e.x)/d*pull*dt;e.y+=(wl.y-e.y)/d*pull*dt;
+      e.slowT=Math.max(e.slowT||0,.12);e.slowAmt=Math.max(e.slowAmt||0,.35);
+    }
+    if(Math.random()<dt*24){
+      const a=Math.random()*Math.PI*2, rr=wl.radius*(.5+Math.random()*.5);
+      particles.push({x:wl.x+Math.cos(a)*rr,y:wl.y+Math.sin(a)*rr,
+        vx:-Math.cos(a)*rr*1.6,vy:-Math.sin(a)*rr*1.6,life:.3,maxLife:.3,color:wl.color,size:2,drag:1.4});
+    }
+  }
+  wells=wells.filter(w=>w.life>0);
 }
 // a gravity mine drops, arms, hauls enemies to its center, then collapses
 function spawnMine(w,x,y){
   const hold=w.hold||1.5;
-  mines.push({x,y,armT:.4,holdT:hold,holdT0:hold,radius:w.radius||160,damage:w.damage,pullForce:w.pullForce||230,color:w.color,crush:w.crush,
+  mines.push({x,y,armT:.4,holdT:hold,holdT0:hold,radius:w.radius||160,damage:w.damage,pullForce:w.pullForce||230,color:w.color,crush:w.crush,cap:w.cap||MINE_CAP,held:0,
     chain:w.ultimate?2:0});   // SINGULARITY COLLAPSE: the wreckage blinks back and detonates twice more
 }
 function updateMines(dt){
   for(const m of mines){
     if(m.armT>0){m.armT-=dt;continue;}
     m.holdT-=dt;
-    for(const e of enemies){
-      const d=dist(e,m);
-      if(d>m.radius||d<1)continue;
+    const caught=grip(m.x,m.y,m.radius,m.cap);
+    m.held=caught.length;
+    for(const {e,d} of caught){
+      if(d<1)continue;
       e.x+=(m.x-e.x)/d*m.pullForce*dt;e.y+=(m.y-e.y)/d*m.pullForce*dt;
       e.slowT=Math.max(e.slowT||0,.12);e.slowAmt=Math.max(e.slowAmt||0,.5);
     }
@@ -1123,13 +1162,23 @@ function updateMines(dt){
         if(d>m.radius)continue;
         const core=m.crush&&d<m.radius*.45,dmg=m.damage*(core?1.75:1);
         e.hp-=dmg;e.flash=.2;spawnDamageNumber(e.x,e.y,Math.ceil(dmg),m.color);
-        if(m.crush&&!core){const a=Math.atan2(e.y-m.y,e.x-m.x);e.x+=Math.cos(a)*46;e.y+=Math.sin(a)*46;}
+        // CRUSH DEPTH hurls every survivor clear, the cored ones included — they were
+        // dragged to the middle, so excluding them meant almost nothing was ever thrown.
+        // Hand it to the knockback the enemy already integrates rather than teleporting.
+        if(m.crush){
+          let ux,uy;
+          if(d<1){const a=Math.random()*Math.PI*2;ux=Math.cos(a);uy=Math.sin(a);}   // dead centre: any way out will do
+          else{ux=(e.x-m.x)/d;uy=(e.y-m.y)/d;}
+          const push=560*(1-clamp(d/m.radius,0,1)*.45)*(e.boss?.4:1);
+          e.kx=ux*push;e.ky=uy*push;e.kt=e.ktMax=.5;
+          burst(e.x,e.y,m.color,5,170,{size:2.2,drag:3});
+        }
       }
       blasts.push({x:m.x,y:m.y,radius:m.radius,life:.4,maxLife:.4,color:m.color});
       burst(m.x,m.y,m.color,30,260,{size:3,drag:2.4});
       burst(m.x,m.y,'#ffffff',14,190,{size:2.2,drag:3.2});
       shake(9);hitStop(.05);sfx('boom');
-      if(m.chain>0)mines.push({x:m.x,y:m.y,armT:.25,holdT:m.holdT0,holdT0:m.holdT0,radius:m.radius,damage:m.damage,pullForce:m.pullForce,color:m.color,crush:m.crush,chain:m.chain-1});
+      if(m.chain>0)mines.push({x:m.x,y:m.y,armT:.25,holdT:m.holdT0,holdT0:m.holdT0,radius:m.radius,damage:m.damage,pullForce:m.pullForce,color:m.color,crush:m.crush,cap:m.cap,held:0,chain:m.chain-1});
       m.dead=true;
     }
   }
@@ -1322,7 +1371,7 @@ const weaponUpgrades={
     ['sword-guard','KINETIC GUARD','Blade reduces contact damage by 30%.']
   ],
   mine:[
-    ['mine-radius','WIDE COLLAPSE','Pull and blast radius +70.'],
+    ['mine-radius','WIDE COLLAPSE','Pull and blast radius +70, and the well holds 4 more enemies at once.'],
     ['mine-power','DENSE CORE','Detonation damage +4.'],
     ['mine-haste','RAPID DEPLOY','Mines deploy 35% more often.'],
     ['mine-multi','TWIN CHARGES','A second mine drops on the next-nearest target each cycle.'],
@@ -1396,7 +1445,7 @@ function upgrade(id){
   else {const weapon=id.split('-')[0],w=state.weapons[weapon],u=weaponUpgrades[weapon]&&weaponUpgrades[weapon].find(x=>x[0]===id);if(w&&u&&!w.taken.includes(id)){w.taken.push(id);w.upgrades++;w.level=w.upgrades;applyWeaponUpgrade(weapon,id);}}
   state.paused=false;hide();
 }
-function applyWeaponUpgrade(weapon,id){const w=state.weapons[weapon];if(weapon==='bow'){if(id==='bow-split')w.shots=(w.shots||1)+1;if(id==='bow-pierce')w.pierce=(w.pierce||0)+1;if(id==='bow-heavy')w.damage+=2;if(id==='bow-draw')w.rate*=1.35;if(id==='bow-seeker'){w.projectileSpeed=(w.projectileSpeed||540)*1.4;w.homing=true;}}if(weapon==='laser'){if(id==='laser-focus')w.damage+=.5;if(id==='laser-pulse')w.rate*=1.35;if(id==='laser-reach')w.range=(w.range||640)+260;if(id==='laser-scorch')w.linger=1.2;if(id==='laser-prism')w.split=true;}if(weapon==='bomb'){if(id==='bomb-radius')w.radius=(w.radius||135)+40;if(id==='bomb-cluster')w.double=true;if(id==='bomb-fuse')w.rate*=1.35;if(id==='bomb-impact')w.damage+=2;if(id==='bomb-pull')w.pull=true;}if(weapon==='aegis'){if(id==='aegis-radius')w.radius=(w.radius||125)+46;if(id==='aegis-power')w.damage+=1.4;if(id==='aegis-drag')w.drag=.55;if(id==='aegis-pulse'){w.pulse=true;w.pulseIn=2.2;}if(id==='aegis-plating')w.plating=true;}if(weapon==='arc'){if(id==='arc-chain')w.chain=(w.chain||1)+1;if(id==='arc-power')w.damage+=2.2;if(id==='arc-rate')w.rate*=1.3;if(id==='arc-reach')w.reach=(w.reach||320)+130;if(id==='arc-overload')w.overload=true;}if(weapon==='sword'){if(id==='sword-reach')w.reach=(w.reach||78)+26;if(id==='sword-spin')w.spin=(w.spin||4)*1.5;if(id==='sword-span')w.reach=(w.reach||78)*1.35;if(id==='sword-sharp')w.damage+=4;if(id==='sword-guard')w.guard=true;}if(weapon==='mine'){if(id==='mine-radius')w.radius=(w.radius||160)+70;if(id==='mine-power')w.damage+=4;if(id==='mine-haste')w.rate*=1.35;if(id==='mine-multi')w.multi=true;if(id==='mine-crush')w.crush=true;}
+function applyWeaponUpgrade(weapon,id){const w=state.weapons[weapon];if(weapon==='bow'){if(id==='bow-split')w.shots=(w.shots||1)+1;if(id==='bow-pierce')w.pierce=(w.pierce||0)+1;if(id==='bow-heavy')w.damage+=2;if(id==='bow-draw')w.rate*=1.35;if(id==='bow-seeker'){w.projectileSpeed=(w.projectileSpeed||540)*1.4;w.homing=true;}}if(weapon==='laser'){if(id==='laser-focus')w.damage+=.5;if(id==='laser-pulse')w.rate*=1.35;if(id==='laser-reach')w.range=(w.range||640)+260;if(id==='laser-scorch')w.linger=1.2;if(id==='laser-prism')w.split=true;}if(weapon==='bomb'){if(id==='bomb-radius')w.radius=(w.radius||135)+40;if(id==='bomb-cluster')w.double=true;if(id==='bomb-fuse')w.rate*=1.35;if(id==='bomb-impact')w.damage+=2;if(id==='bomb-pull')w.pull=true;}if(weapon==='aegis'){if(id==='aegis-radius')w.radius=(w.radius||125)+46;if(id==='aegis-power')w.damage+=1.4;if(id==='aegis-drag')w.drag=.55;if(id==='aegis-pulse'){w.pulse=true;w.pulseIn=2.2;}if(id==='aegis-plating')w.plating=true;}if(weapon==='arc'){if(id==='arc-chain')w.chain=(w.chain||1)+1;if(id==='arc-power')w.damage+=2.2;if(id==='arc-rate')w.rate*=1.3;if(id==='arc-reach')w.reach=(w.reach||320)+130;if(id==='arc-overload')w.overload=true;}if(weapon==='sword'){if(id==='sword-reach')w.reach=(w.reach||78)+26;if(id==='sword-spin')w.spin=(w.spin||4)*1.5;if(id==='sword-span')w.reach=(w.reach||78)*1.35;if(id==='sword-sharp')w.damage+=4;if(id==='sword-guard')w.guard=true;}if(weapon==='mine'){if(id==='mine-radius'){w.radius=(w.radius||160)+70;w.cap=(w.cap||MINE_CAP)+4;}if(id==='mine-power')w.damage+=4;if(id==='mine-haste')w.rate*=1.35;if(id==='mine-multi')w.multi=true;if(id==='mine-crush')w.crush=true;}
 }
 const globalInfo={health:['REINFORCED HULL','Maximum health +25 each'],speed:['KINETIC THRUSTERS','Movement speed +18% each'],regen:['NANITE REPAIR','Health regeneration +2/s each'],dash:['SLIPSTREAM COILS','Dash carries you 60% further']};
 const relicInfo={echo:['ECHO PHANTOM','A ghost mirrors your movement and fires with you.'],cloak:['PHASE CLOAK','Press E to phase out for 3 seconds.'],overdrive:['CORE OVERDRIVE','All weapons fire 25% faster.']};
@@ -1683,7 +1732,7 @@ function draw(){
   }
   ctx.translate(-camX,-camY);
   drawBackground();
-  drawStrikes();drawBeams();drawStars();drawEnemies();drawBossArt();drawProjectiles();drawRings();drawMines();drawPulses();drawBlasts();drawParticles();drawEcho();drawPortal();drawPlayer();drawWeaponEffects();drawDamageNumbers();
+  drawStrikes();drawBeams();drawStars();drawEnemies();drawBossArt();drawProjectiles();drawRings();drawMines();drawWells();drawPulses();drawBlasts();drawParticles();drawEcho();drawPortal();drawPlayer();drawWeaponEffects();drawDamageNumbers();
   ctx.restore();
   drawOffscreenMarkers();
   drawVignette();
@@ -2118,14 +2167,30 @@ function drawMines(){
       ctx.globalAlpha=.5+p*.4;ctx.strokeStyle=m.color;ctx.lineWidth=2;
       ctx.beginPath();ctx.arc(m.x,m.y,10+p*8,0,7);ctx.stroke();
     }else{
-      const p=clamp(m.holdT/m.holdT0,0,1);
-      ctx.globalAlpha=.18;ctx.fillStyle=m.color;
+      const p=clamp(m.holdT/m.holdT0,0,1), load=clamp((m.held||0)/(m.cap||MINE_CAP),0,1);
+      ctx.globalAlpha=.18+load*.14;ctx.fillStyle=m.color;
       ctx.beginPath();ctx.arc(m.x,m.y,m.radius,0,7);ctx.fill();
       ctx.globalAlpha=.55+Math.sin(state.time*14)*.15;ctx.strokeStyle=m.color;ctx.shadowColor=m.color;ctx.shadowBlur=16;ctx.lineWidth=3;
       ctx.beginPath();ctx.arc(m.x,m.y,m.radius*(.14+(1-p)*.12),0,7);ctx.stroke();
       ctx.shadowBlur=0;ctx.globalAlpha=.9;ctx.fillStyle='#0b0c14';
       ctx.beginPath();ctx.arc(m.x,m.y,9,0,7);ctx.fill();
       ctx.globalAlpha=.7;ctx.strokeStyle='#ffffff';ctx.lineWidth=1.5;ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+function drawWells(){
+  for(const wl of wells){
+    const p=clamp(wl.life/wl.maxLife,0,1);
+    ctx.save();
+    ctx.globalCompositeOperation='lighter';
+    ctx.globalAlpha=p*.2;ctx.fillStyle=wl.color;
+    ctx.beginPath();ctx.arc(wl.x,wl.y,wl.radius,0,7);ctx.fill();
+    // arcs winding inward as the crater closes
+    ctx.globalAlpha=p*.7;ctx.strokeStyle=wl.color;ctx.lineWidth=2.5;
+    for(let i=0;i<3;i++){
+      const rr=wl.radius*(.26+(((1-p)+i/3)%1)*.7), a=state.time*4+i*2.1;
+      ctx.beginPath();ctx.arc(wl.x,wl.y,rr,a,a+Math.PI*.7);ctx.stroke();
     }
     ctx.restore();
   }
@@ -2193,56 +2258,56 @@ function drawEcho(){
 }
 function drawPlayer(){
   const cloaked=state.cloakTime>0;
-  drawShuttle((cloaked?.3:1)*state.playerAlpha);
+  drawPlane((cloaked?.3:1)*state.playerAlpha);
 }
-// top-down orbiter: white fuselage, black nose and wing edges, OMS pods, and three
-// main engines that light up with the throttle
-function drawShuttle(alpha){
-  const r=player.r, hit=player.flash>0, white=hit?'#ffffff':'#e9eef5', shade=hit?'#ffffff':'#c9d3e0', dark='#161c28';
+// top-down planes: one vibrant plate in the pilot's colour, so the silhouette alone
+// says which airframe you are flying. Half-outlines, nose first and tail last, both
+// ending on the centreline; the other side is mirrored at draw time. x is length in
+// radii, y is half-span, and `jets` are the exhaust offsets across the tail.
+const PLANE_SCALE=1.25;
+const PLANES={
+  fighter:{jets:[-.34,.34],pts:[[1.75,0],[1.15,.20],[.45,.22],[.10,.95],[-.30,1.05],[-.25,.30],[-1.05,.32],[-1.35,.80],[-1.55,.78],[-1.45,.16],[-1.60,0]]},
+  jet:{jets:[0],pts:[[2.05,0],[1.45,.13],[.55,.15],[.05,.62],[-.35,.70],[-.30,.22],[-1.05,.24],[-1.30,.62],[-1.48,.60],[-1.42,.12],[-1.55,0]]},
+  bomber:{jets:[-.72,-.26,.26,.72],pts:[[1.45,0],[1.20,.30],[.55,.38],[.35,1.35],[-.05,1.40],[-.20,.42],[-1.00,.44],[-1.20,1.00],[-1.45,.98],[-1.38,.20],[-1.55,0]]},
+  recon:{jets:[-.30,.30],pts:[[1.65,0],[1.15,.17],[.50,.19],[.30,1.30],[.05,1.32],[-.15,.26],[-1.00,.28],[-1.28,.78],[-1.46,.76],[-1.40,.14],[-1.55,0]]},
+  gunship:{jets:[-.52,0,.52],pts:[[1.50,0],[1.20,.26],[.50,.34],[.42,1.15],[-.10,1.20],[-.22,.38],[-.95,.40],[-1.18,.92],[-1.42,.90],[-1.36,.18],[-1.52,0]]},
+  delta:{jets:[-.30,.30],pts:[[1.90,0],[1.30,.14],[.60,.16],[-.55,1.15],[-.95,1.18],[-.85,.24],[-1.20,.26],[-1.35,.70],[-1.50,.68],[-1.44,.12],[-1.58,0]]},
+  apex:{jets:[-.36,.36],pts:[[1.80,0],[1.25,.18],[.50,.20],[.85,1.00],[.50,1.08],[-.30,.30],[-1.05,.32],[-1.30,.82],[-1.50,.80],[-1.44,.16],[-1.58,0]]}
+};
+const planeOf=()=>PLANES[((state&&characters[state.character])||characters[STARTER]).plane]||PLANES.fighter;
+function planePath(P,r){
+  const pts=P.pts;
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0]*r,0);
+  for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i][0]*r,pts[i][1]*r);
+  for(let i=pts.length-2;i>0;i--)ctx.lineTo(pts[i][0]*r,-pts[i][1]*r);
+  ctx.closePath();
+}
+function drawPlane(alpha){
+  const r=player.r*PLANE_SCALE, hit=player.flash>0, col=pilotColor(), P=planeOf();
+  const tail=P.pts[P.pts.length-1][0]*r;
   ctx.save();
   ctx.translate(player.x,player.y);ctx.rotate(player.heading);
   const th=player.thrust;
   if(th>.05){
     const step=Math.floor(state.time*28);
     ctx.save();ctx.globalCompositeOperation='lighter';
-    for(let i=-1;i<=1;i++){
-      const y=i*r*.27, len=r*(.9+grand(step*3+i)*.5)*th, w=r*.14;
-      ctx.globalAlpha=alpha*.5;ctx.fillStyle='#ff7a2a';flameTongue(-r*1.58,y,Math.PI,len,w);
-      ctx.globalAlpha=alpha*.7;ctx.fillStyle='#ffc457';flameTongue(-r*1.58,y,Math.PI,len*.62,w*.7);
-      ctx.globalAlpha=alpha*.9;ctx.fillStyle='#fff6df';flameTongue(-r*1.58,y,Math.PI,len*.3,w*.4);
+    for(let i=0;i<P.jets.length;i++){
+      const y=P.jets[i]*r, len=r*(.85+grand(step*3+i)*.5)*th, w=r*.13;
+      ctx.globalAlpha=alpha*.45;ctx.fillStyle=col;flameTongue(tail,y,Math.PI,len,w);
+      ctx.globalAlpha=alpha*.8;ctx.fillStyle='#ffffff';flameTongue(tail,y,Math.PI,len*.34,w*.5);
     }
     ctx.restore();
   }
   ctx.globalAlpha=alpha;
-  ctx.shadowColor='rgba(255,255,255,.45)';ctx.shadowBlur=hit?20:8;
-  // wings: leading edges sweep back from mid-fuselage to tips at the tail, straight trailing edge
-  ctx.fillStyle=shade;
-  ctx.beginPath();
-  ctx.moveTo(r*.2,-r*.33);ctx.lineTo(-r*1.15,-r*1.15);ctx.lineTo(-r*1.4,-r*1.15);
-  ctx.lineTo(-r*1.4,r*1.15);ctx.lineTo(-r*1.15,r*1.15);ctx.lineTo(r*.2,r*.33);
-  ctx.closePath();ctx.fill();
-  // fuselage
-  ctx.fillStyle=white;
-  ctx.beginPath();
-  ctx.moveTo(r*1.75,0);ctx.quadraticCurveTo(r*1.5,-r*.34,r*1.0,-r*.34);
-  ctx.lineTo(-r*1.55,-r*.34);ctx.lineTo(-r*1.55,r*.34);ctx.lineTo(r*1.0,r*.34);
-  ctx.quadraticCurveTo(r*1.5,r*.34,r*1.75,0);
-  ctx.closePath();ctx.fill();
+  ctx.fillStyle=hit?'#ffffff':col;
+  ctx.shadowColor=col;ctx.shadowBlur=hit?26:14;
+  planePath(P,r);ctx.fill();
   ctx.shadowBlur=0;
-  // OMS pods
-  ctx.fillStyle=shade;
-  for(const s of [-1,1]){ctx.beginPath();ctx.ellipse(-r*1.25,s*r*.52,r*.3,r*.19,0,0,7);ctx.fill();}
-  // black leading edges, tail fin, nose cap, cockpit
-  ctx.strokeStyle=dark;ctx.lineWidth=1.8;
-  ctx.beginPath();ctx.moveTo(r*.2,-r*.33);ctx.lineTo(-r*1.15,-r*1.15);ctx.moveTo(r*.2,r*.33);ctx.lineTo(-r*1.15,r*1.15);ctx.stroke();
-  ctx.beginPath();ctx.moveTo(-r*1.55,0);ctx.lineTo(-r*.7,0);ctx.stroke();
-  ctx.fillStyle=dark;
-  ctx.beginPath();ctx.moveTo(r*1.75,0);ctx.quadraticCurveTo(r*1.58,-r*.24,r*1.42,-r*.24);ctx.lineTo(r*1.42,r*.24);ctx.quadraticCurveTo(r*1.58,r*.24,r*1.75,0);ctx.closePath();ctx.fill();
-  ctx.fillRect(r*1.1,-r*.2,r*.13,r*.4);
-  // nozzles
-  ctx.fillStyle='#3a4558';
-  for(const s of [-1,1]){ctx.beginPath();ctx.arc(-r*1.58,s*r*.52,r*.11,0,7);ctx.fill();}
-  for(let i=-1;i<=1;i++){ctx.beginPath();ctx.arc(-r*1.58,i*r*.27,r*.12,0,7);ctx.fill();}
+  // a dark rim and canopy slit keep the plate readable over a bright floor
+  ctx.strokeStyle='rgba(6,9,16,.5)';ctx.lineWidth=1.6;planePath(P,r);ctx.stroke();
+  ctx.fillStyle='rgba(6,9,16,.55)';
+  ctx.beginPath();ctx.ellipse(r*.72,0,r*.3,r*.14,0,0,7);ctx.fill();
   ctx.restore();
 }
 function drawWeaponEffects(){
@@ -2694,7 +2759,7 @@ function showHome(){
           +'<button class="continue ghost" id="homePlay">'+(confirmingNew?'START OVER? THIS ENDS THE SAVED RUN':'NEW RUN')+'</button>'
         : '<button class="continue big" id="homePlay">PLAY</button>')
       +'<button class="continue ghost" id="homeHow">HOW TO PLAY</button>'
-      +'<button class="continue ghost" id="homeRoster">CHARACTERS'+(affordableCount()?' <em class="pip">'+affordableCount()+'</em>':'')+'</button>'
+      +'<button class="continue ghost" id="homeRoster">HANGAR'+(affordableCount()?' <em class="pip">'+affordableCount()+'</em>':'')+'</button>'
     +'</div>'
   +'</div>');
   $('#homePlay').onclick=()=>{sfx('ui');
