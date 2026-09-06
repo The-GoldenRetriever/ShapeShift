@@ -232,3 +232,23 @@
 .pilot-ship .ship-canopy{fill:rgba(6,9,16,.55)}
 .pilot-ship .ship-jets line{stroke-width:.14;stroke-linecap:round;opacity:.5}
 .pilot.on .pilot-ship .ship-jets line{opacity:.9}
+
+/* ---- shell: the arena is a lit panel and the chrome sits back from it ---- */
+body{background:radial-gradient(ellipse at 50% -22%,#131e36 0,#05080f 54%)}
+.game-wrap{border:none;border-radius:9px;background:#060a14;overflow:hidden;
+  box-shadow:0 0 0 1px #1b2740, 0 26px 80px rgba(0,0,0,.6)}
+.game-wrap:before{border-radius:9px;
+  box-shadow:inset 0 0 0 1px rgba(120,190,255,.07), inset 0 0 130px rgba(4,7,15,.72)}
+.game-wrap canvas{border-radius:9px}
+.topbar{border-bottom:1px solid #141e33}
+.brand h1{letter-spacing:.26em}
+.brand-mark{text-shadow:0 0 16px rgba(85,230,255,.5)}
+/* the room number is the only number up here that changes, so let it read as one */
+.wave-readout strong{font-size:33px;line-height:1;letter-spacing:-.01em;text-shadow:0 0 12px rgba(85,230,255,.3)}
+.wave-readout span{letter-spacing:.22em}
+.wave-readout i{color:#ff7d9c}
+footer{color:#5d6c86}
+footer b{color:#cfdaec}
+.footer-tip{color:#4f6a84;letter-spacing:.12em}
+/* menus sit on frosted glass so a busy arena cannot compete with the copy */
+.overlay{background:rgba(5,8,16,.9);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px)}

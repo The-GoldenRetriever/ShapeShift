@@ -133,7 +133,7 @@ let player, enemies, arrows, enemyBullets, stars, particles, blasts, echoShots, 
 // `weapon` grants a weapon nobody else can be offered.
 const characters = {
   drifter:   { name:'DRIFTER',    cost:0,    hp:1,    speed:1,    color:'#55e6ff', tag:'BALANCED', plane:'fighter', sides:6, mark:'none',
-               blurb:'The standard frame. No strengths, no holes.', perks:[] },
+               blurb:'The standard frame. No strengths, no holes.', perks:['100 hull','288 speed','no trade-offs'] },
   bulwark:   { name:'BULWARK',    cost:200,  hp:1.5,  speed:.8,   color:'#6de0bd', tag:'HEAVY', regen:2, plane:'bomber', sides:8, mark:'plate',
                blurb:'Armour plating traded for pace.', perks:['+50% hull','-20% speed','+2 regen/s'] },
   skirmisher:{ name:'SKIRMISHER', cost:200,  hp:.7,   speed:1.25, color:'#ffc857', tag:'FRAGILE', dashCd:2, dashPower:1.25, plane:'jet', sides:3, mark:'fins',
@@ -377,7 +377,7 @@ function beginRoom() {
   state.active=true; state.intermission=false; state.exit=null; state.vacuum=false; state.left=bossRoom?0:wave; state.spawnIn=.55;
   if(bossRoom){spawnBoss();sfx('boss');}
   for(let i=0;i<Math.min(Math.round(14*mass),state.left);i++){spawn();state.left--;}
-  ui.room.textContent=state.room; ui.roomState.textContent=bossRoom?bossForRoom(state.room).name+' // '+bossForRoom(state.room).blurb:'ROOM HOSTILES INBOUND';
+  ui.room.textContent=state.room; ui.roomState.textContent=bossRoom?bossForRoom(state.room).name+' // '+bossForRoom(state.room).blurb:'HOSTILES INBOUND';
   recordRoom(state.room);
   const bossDef=bossRoom?bossForRoom(state.room):null;
   state.roomBanner={room:state.room,life:bossRoom?4.2:BANNER_TIME,total:bossRoom?4.2:BANNER_TIME,
@@ -1789,7 +1789,7 @@ function drawRoomBanner(){
   const intro=Math.min(1,t/.28);
   const step=Math.floor(t*20);
   const heat=.2+(1-intro)*1.7+(1-fade)*1.5+(grand(step*3.7)>.87?1:0);
-  const LW=W, LH=250, MAIN_Y=75;
+  const LW=W, LH=220, MAIN_Y=58;
   if(!bannerLayer){bannerLayer=document.createElement('canvas');bannerLayer.width=LW;bannerLayer.height=LH;}
   const g=bannerLayer.getContext('2d');
   g.clearRect(0,0,LW,LH);
@@ -1806,25 +1806,34 @@ function drawRoomBanner(){
     g.globalCompositeOperation='source-over';
     g.globalAlpha=(grand(step+7)>.94?.3:1)*alpha;
     g.shadowColor=tint;g.shadowBlur=26*split;
-    g.fillStyle='#eff4ff';g.fillText(text,cx,y);
+    g.fillStyle='#f2f7ff';g.fillText(text,cx,y);
     g.shadowBlur=0;g.globalAlpha=1;
   };
-  line('ROOM '+b.room,MAIN_Y,66,'#55e6ff',1,1);
+  g.letterSpacing='0.16em';
+  line('ROOM '+String(b.room).padStart(2,'0'),MAIN_Y,44,'#55e6ff',1,1);
+  g.letterSpacing='0px';
+  // a rule that opens outward under the number: the one bit of motion that says
+  // a new room just latched
+  const ruleW=(b.boss?300:210)*(.25+.75*Math.min(1,t/.45));
+  g.globalAlpha=.85*(b.boss?1:.7);
+  g.strokeStyle='#55e6ff';g.lineWidth=1.5;
+  g.beginPath();g.moveTo(cx-ruleW/2,MAIN_Y+30);g.lineTo(cx+ruleW/2,MAIN_Y+30);g.stroke();
+  g.globalAlpha=1;
   if(b.boss){
     // the boss announces itself under the room number, in its own colour
     const reveal=clamp((t-.22)/.3,0,1);
     if(reveal>0){
-      line(b.boss,MAIN_Y+62,34,b.bossColor||'#ff4f9a',.7,reveal);
-      g.globalAlpha=reveal*.75;
-      g.font="500 13px 'DM Mono', monospace";
+      line(b.boss,MAIN_Y+62,30,b.bossColor||'#ff4f9a',.7,reveal);
+      g.globalAlpha=reveal*.7;
+      g.font="500 12px 'DM Mono', monospace";
       g.fillStyle=b.bossColor||'#ff4f9a';
-      g.fillText(b.bossNote||'',cx,MAIN_Y+100);
+      g.fillText(b.bossNote||'',cx,MAIN_Y+92);
       g.globalAlpha=1;
     }
   }
   g.globalCompositeOperation='destination-out';
-  g.fillStyle='rgba(0,0,0,.5)';
-  for(let y=0;y<LH;y+=4)g.fillRect(0,y,LW,1);
+  g.fillStyle='rgba(0,0,0,.34)';
+  for(let y=0;y<LH;y+=3)g.fillRect(0,y,LW,1);
   g.globalCompositeOperation='source-over';
   const top=Math.round(H*.165-MAIN_Y), band=5;
   ctx.save();
@@ -1832,7 +1841,7 @@ function drawRoomBanner(){
   for(let y=0;y<LH;y+=band){
     const i=y/band, r=grand(step*17+i*3.1);
     if(r>.985&&heat>.6)continue;
-    const off=r>.82?Math.round((grand(step*5+i*7.7)*2-1)*46*heat):0;
+    const off=r>.86?Math.round((grand(step*5+i*7.7)*2-1)*32*heat):0;
     ctx.drawImage(bannerLayer,0,y,LW,Math.min(band,LH-y),off,top+y,LW,Math.min(band,LH-y));
   }
   ctx.restore();
@@ -1923,7 +1932,7 @@ function drawVictorySequence(){
 }
 function draw(){
   camera();
-  ctx.clearRect(0,0,W,H);ctx.fillStyle='#090f1b';ctx.fillRect(0,0,W,H);
+  ctx.clearRect(0,0,W,H);ctx.fillStyle='#060a14';ctx.fillRect(0,0,W,H);
   ctx.save();
   if(state.shake>0)ctx.translate(rand(-state.shake,state.shake),rand(-state.shake,state.shake));
   if(state.cameraZoom!==1||state.cameraRot){
@@ -2025,6 +2034,52 @@ function drawStarLayer(layer,pf){
   }
   ctx.restore();
 }
+// the deck the fight happens on. Without it the room is a void and you cannot
+// feel yourself move; the grid gives the eye something to slide past.
+const DECK=20;
+let deckGrad=null;
+function drawDeck(){
+  const L=DECK,T=DECK,R=RW-DECK,B=RH-DECK;
+  if(!deckGrad){
+    deckGrad=ctx.createRadialGradient(RW/2,RH/2,120,RW/2,RH/2,RW*.62);
+    deckGrad.addColorStop(0,'rgba(24,42,76,.42)');
+    deckGrad.addColorStop(.55,'rgba(16,28,54,.24)');
+    deckGrad.addColorStop(1,'rgba(8,13,26,0)');
+  }
+  ctx.save();
+  ctx.fillStyle=deckGrad;ctx.fillRect(L,T,R-L,B-T);
+  ctx.restore();
+}
+// the wall reads as a lit containment edge rather than a hairline rectangle
+function drawWalls(){
+  const L=DECK,T=DECK,R=RW-DECK,B=RH-DECK,fade=120,c=64;
+  ctx.save();
+  ctx.globalCompositeOperation='lighter';
+  // each band starts at its own wall and fades inward
+  const band=(x,y,w,h,gx0,gy0,gx1,gy1)=>{
+    const g=ctx.createLinearGradient(gx0,gy0,gx1,gy1);
+    g.addColorStop(0,'rgba(64,140,215,.08)');
+    g.addColorStop(1,'rgba(64,140,215,0)');
+    ctx.fillStyle=g;ctx.fillRect(x,y,w,h);
+  };
+  band(L,T,R-L,fade, L,T, L,T+fade);
+  band(L,B-fade,R-L,fade, L,B, L,B-fade);
+  band(L,T,fade,B-T, L,T, L+fade,T);
+  band(R-fade,T,fade,B-T, R,T, R-fade,T);
+  ctx.restore();
+  ctx.save();
+  ctx.strokeStyle='#2a3d59';ctx.lineWidth=1;
+  ctx.strokeRect(L,T,R-L,B-T);
+  ctx.strokeStyle='#55e6ff';ctx.lineWidth=2.5;ctx.globalAlpha=.55;
+  ctx.shadowColor='#55e6ff';ctx.shadowBlur=10;
+  ctx.beginPath();
+  ctx.moveTo(L,T+c);ctx.lineTo(L,T);ctx.lineTo(L+c,T);
+  ctx.moveTo(R-c,T);ctx.lineTo(R,T);ctx.lineTo(R,T+c);
+  ctx.moveTo(R,B-c);ctx.lineTo(R,B);ctx.lineTo(R-c,B);
+  ctx.moveTo(L+c,B);ctx.lineTo(L,B);ctx.lineTo(L,B-c);
+  ctx.stroke();
+  ctx.restore();
+}
 function drawBackground(){
   if(!starLayers)starLayers=[
     makeStarLayer(160,.5,1,'#38507a'),
@@ -2035,19 +2090,9 @@ function drawBackground(){
   drawStarLayer(starLayers[0],.1);
   drawStarLayer(starLayers[1],.28);
   drawStarLayer(starLayers[2],.52);
-  ctx.globalAlpha=1;ctx.lineWidth=1;
-  const L=20,T=20,R=RW-20,B=RH-20,c=44;
-  ctx.strokeStyle='#2a3d59';ctx.strokeRect(L,T,R-L,B-T);
-  ctx.save();
-  ctx.strokeStyle='#55e6ff';ctx.lineWidth=2.5;ctx.globalAlpha=.55;
-  ctx.shadowColor='#55e6ff';ctx.shadowBlur=10;
-  ctx.beginPath();
-  ctx.moveTo(L,T+c);ctx.lineTo(L,T);ctx.lineTo(L+c,T);
-  ctx.moveTo(R-c,T);ctx.lineTo(R,T);ctx.lineTo(R,T+c);
-  ctx.moveTo(R,B-c);ctx.lineTo(R,B);ctx.lineTo(R-c,B);
-  ctx.moveTo(L+c,B);ctx.lineTo(L,B);ctx.lineTo(L,B-c);
-  ctx.stroke();
-  ctx.restore();
+  ctx.globalAlpha=1;
+  drawDeck();
+  drawWalls();
 }
 const LOW_HP=.35;   // the border starts creeping in below this share of hull
 // a red frame that breathes faster the closer you are to dying, and drains
@@ -2088,6 +2133,12 @@ function rgba(hex,a){
   let c=hexCache[hex];
   if(!c){const h=hex.length===4?'#'+hex[1]+hex[1]+hex[2]+hex[2]+hex[3]+hex[3]:hex;c=[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];hexCache[hex]=c;}
   return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')';
+}
+// blend two hex colours; the enemy health ramp is the only caller so far
+function mixHex(a,b,t){
+  rgba(a,1);rgba(b,1);
+  const A=hexCache[a],B=hexCache[b];t=clamp(t,0,1);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','+Math.round(A[2]+(B[2]-A[2])*t)+')';
 }
 // hull silhouettes, nose along +x; each is one closed path so fills, outlines and
 // overlays all share it
@@ -2219,12 +2270,24 @@ function drawEnemies(){
     }
     if(e.laserLinger>0)drawBurn(e);
     if(e.hp<e.maxHp&&grow>=1){
-      const bw=Math.max(28,e.r*2.2),bx=e.x-bw/2,by=e.y-e.r-13;
-      ctx.fillStyle='rgba(7,11,21,.78)';ctx.fillRect(bx-1.5,by-1.5,bw+3,6);
-      ctx.fillStyle='#1d2738';ctx.fillRect(bx,by,bw,3);
-      ctx.fillStyle=sp.color;ctx.shadowColor=sp.color;ctx.shadowBlur=8;
-      ctx.fillRect(bx,by,bw*clamp(e.hp/e.maxHp,0,1),3);
-      ctx.shadowBlur=0;
+      // an arc riding the hull reads as damage to *that* ship; a bar floating
+      // overhead reads as debris once a dozen of them are on screen.
+      // Colour carries the reading so you never have to measure arc length --
+      // green is fresh, red is one more hit -- and it never uses the shape's own
+      // colour, which would vanish against the hull it sits on.
+      const k=clamp(e.hp/e.maxHp,0,1), rr=e.r+10, a0=-Math.PI*.97, sweep=Math.PI*.94;
+      const th=clamp(e.r*.24,3.6,8);          // bosses get a chunkier ring
+      const col=k>.5?mixHex('#fbbf24','#4ade80',(k-.5)*2):mixHex('#ff3b30','#fbbf24',k*2);
+      ctx.save();ctx.lineCap='round';
+      // a dark outline first, so the readout survives on top of bright particles
+      ctx.strokeStyle='rgba(3,6,13,.9)';ctx.lineWidth=th+5;
+      ctx.beginPath();ctx.arc(e.x,e.y,rr,a0,a0+sweep);ctx.stroke();
+      // the empty track stays visible, so the fill reads as a proportion
+      ctx.strokeStyle='rgba(126,146,180,.5)';ctx.lineWidth=th;
+      ctx.beginPath();ctx.arc(e.x,e.y,rr,a0,a0+sweep);ctx.stroke();
+      ctx.strokeStyle=col;ctx.lineWidth=th;ctx.shadowColor=col;ctx.shadowBlur=7;
+      ctx.beginPath();ctx.arc(e.x,e.y,rr,a0,a0+sweep*k);ctx.stroke();
+      ctx.restore();
     }
   }
 }
