@@ -107,6 +107,8 @@ const types = {
   diamond: { hp: 3, speed: 92, r: 15, color: '#f36bff', xp: 9, sides: 4 },
   pentagon: { hp: 20, speed: 24, r: 24, color: '#e88bff', xp: 18, sides: 5 },
   prism: { hp: 7, speed: 58, r: 21, color: '#72a8ff', xp: 16, sides: 6 },
+  seeker: { hp: 9, speed: 44, r: 19, color: '#ff6bd6', xp: 22, sides: 7 },
+  raker: { hp: 14, speed: 24, r: 22, color: '#b6ff5c', xp: 27, sides: 4 },
   boss: { hp: 360, speed: 27, r: 52, color: '#ff4f9a', xp: 120, sides: 8 },
   sentinel: { hp: 360, speed: 27, r: 66, color: '#ff4f9a', xp: 120, sides: 8 },
   lance:    { hp: 360, speed: 62, r: 52, color: '#ff8a3d', xp: 155, sides: 3 },
@@ -124,7 +126,7 @@ const bossOrder = [
   { id:'hollow',   name:'HOLLOW',   hpMult:.86,  contact:30, blurb:'Shields itself, calls escorts, rings' }
 ];
 const bossForRoom = room => bossOrder[(Math.max(1,Math.floor(room/10))-1) % bossOrder.length];
-let player, enemies, arrows, enemyBullets, stars, particles, blasts, echoShots, damageNumbers, delayedBlasts, strikes, rings, pulses, state;
+let player, enemies, arrows, enemyBullets, stars, particles, blasts, echoShots, damageNumbers, delayedBlasts, strikes, rings, pulses, beams, state;
 // ---- roster -------------------------------------------------------------
 // hp/speed are multipliers on the 100hp / 288px-per-second baseline.
 // `weapon` grants a weapon nobody else can be offered.
@@ -244,8 +246,8 @@ function reset(difficulty = 'medium') {
   const c = characters[chosen] || characters[STARTER];
   const maxHp = Math.round(100 * c.hp);
   player = { x: RW / 2, y: RH / 2, r: 16, hp: maxHp, maxHp, speed: Math.round(288 * c.speed), regen: 3 + (c.regen || 0), hurtAt: -10, aim: 0, vx: 0, vy: 0 };
-  enemies = []; arrows = []; enemyBullets = []; stars = []; particles = []; blasts = []; delayedBlasts = []; echoShots = []; damageNumbers = []; strikes = []; rings = []; pulses = [];
-  state = { difficulty, last: performance.now(), time: 0, room: 1, level: 1, xp: 0, need: 60, kills: 0, left: 0, spawnIn: 0, active: true, paused: false, upgradeOpen: false, intermission: false, transitioning: false, roomTransition: 0, exit: null, relicRooms: {}, globals: {}, relicsTaken: [], relicOpen: false, vacuum: false, beatBest: false, over: false, dying: 0, hitStop: 0, beatIn: 0, lowPulse: 0, knockX: 0, knockY: 0, knockT: 0, paidCredits: 0, portalArm: 0, history: [], echo: null, cloakTime: 0, cloakCooldown: 0, bowIn: 0, laserIn: 0, bombIn: 0, dashCooldown: 0, dashTime: 0, dashX: 0, dashY: 0, dashPower: 1, dashCd: 3, arcIn: 0, character: STARTER, charXp: 1, charDamage: 1, lastMoveX: 1, lastMoveY: 0, shake: 0, playerAlpha: 1, screenAlpha: 0, cameraZoom: 1, zoomCenterX: RW/2, zoomCenterY: RH/2, victoryPortal: null, victorySequence: null, victoryTimer: 0, roomBanner: null, cameraRot: 0, flash: 0, warp: null, suckR: 0, suckA: 0, suckDir: 1, portalCharge: 0, hurtFlash: 0, weapons: { bow: { name: 'LONGBOW', color: '#55e6ff', damage: 2, rate: 1.3, level: 0, upgrades: 0, taken: [], ultimate: false } } };
+  enemies = []; arrows = []; enemyBullets = []; stars = []; particles = []; blasts = []; delayedBlasts = []; echoShots = []; damageNumbers = []; strikes = []; rings = []; pulses = []; beams = [];
+  state = { difficulty, last: performance.now(), time: 0, room: 1, level: 1, xp: 0, need: 60, kills: 0, left: 0, spawnIn: 0, active: true, paused: false, upgradeOpen: false, intermission: false, transitioning: false, roomTransition: 0, exit: null, relicRooms: {}, globals: {}, relicsTaken: [], relicOpen: false, vacuum: false, beatBest: false, over: false, dying: 0, hitStop: 0, beatIn: 0, lowPulse: 0, knockX: 0, knockY: 0, knockT: 0, paidCredits: 0, portalArm: 0, history: [], echo: null, cloakTime: 0, cloakCooldown: 0, bowIn: 0, laserIn: 0, bombIn: 0, dashCooldown: 0, dashTime: 0, dashX: 0, dashY: 0, dashPower: 1, dashCd: 3, arcIn: 0, character: STARTER, charXp: 1, charDamage: 1, lastMoveX: 1, lastMoveY: 0, shake: 0, playerAlpha: 1, screenAlpha: 0, cameraZoom: 1, zoomCenterX: RW/2, zoomCenterY: RH/2, victoryPortal: null, victorySequence: null, victoryTimer: 0, roomBanner: null, cameraRot: 0, flash: 0, warp: null, suckR: 0, suckA: 0, suckDir: 1, portalCharge: 0, hurtFlash: 0, weapons: { bow: { name: 'BLASTER', color: '#55e6ff', damage: 2, rate: 1.3, level: 0, upgrades: 0, taken: [], ultimate: false } } };
   state.character=chosen;
   state.charXp=c.xp||1;
   state.charDamage=c.damage||1;
@@ -307,6 +309,8 @@ function type() {
   if(state.room>=4) pool.push('diamond');
   if(state.room>=10) pool.push('pentagon');
   if(state.room>=12) pool.push('prism');
+  if(state.room>=21) pool.push('seeker');
+  if(state.room>=25) pool.push('raker');
   return pool[Math.floor(Math.random()*pool.length)];
 }
 function spawn() {
@@ -552,7 +556,7 @@ function update(dt,real) {
   if(state.active&&state.left>0){state.spawnIn-=dt;if(state.spawnIn<=0){spawn();state.left--;state.spawnIn=Math.max(.18,.55-state.room*.02);}}
   state.bowIn-=dt;if(state.bowIn<=0){fire();state.bowIn=1/state.weapons.bow.rate;}
   for(const e of enemies) moveEnemy(e,dt);
-  weapons(dt); updateArrows(dt); updateEchoShots(dt); updateEnemyBullets(dt); updateStars(dt); deaths(); updateParticles(dt); updateBlasts(dt); updateDelayedBlasts(dt); updateStrikes(dt); updateRings(dt); updatePulses(dt); updateDamageNumbers(dt);
+  weapons(dt); updateArrows(dt); updateEchoShots(dt); updateEnemyBullets(dt); updateStars(dt); deaths(); updateParticles(dt); updateBlasts(dt); updateDelayedBlasts(dt); updateStrikes(dt); updateRings(dt); updatePulses(dt); updateBeams(dt); updateDamageNumbers(dt);
   if(state.active&&state.left===0&&enemies.length===0) finishRoom();
   if(player.hp<=0&&!state.dying&&!state.over){
     state.dying=1.05;
@@ -577,8 +581,8 @@ const bossStep=(e,dt,mult,difficulty,ang0)=>{
   e.y=clamp(e.y+Math.sin(ang0)*s*dt,e.r,RH-e.r);
 };
 function bossOrb(e,angle,speed,damage){
-  enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,r:9,life:9,
-    damage,homing:1,turn:1.5,color:'#ffb066',keep:true});
+  enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,r:9,life:8,
+    damage,homing:1,turn:1.9,color:'#ffb066',keep:true});
 }
 const bossBehaviour={
   // room 10 — the baseline: pressure with volleys, closes with charges
@@ -613,7 +617,7 @@ const bossBehaviour={
     }else if(e.mode==='volley'){
       if(!e.fired&&e.timer<.85){
         e.fired=true;
-        for(let i=0;i<5;i++)bossOrb(e,a+(i-2)*.42,120*difficulty.speed,14*difficulty.dmg);
+        for(let i=0;i<5;i++)bossOrb(e,a+(i-2)*.42,235*difficulty.speed,14*difficulty.dmg);
         shake(4);
       }
       if(e.timer<=0){e.mode='pursue';e.timer=rand(.6,1.2);e.fired=false;}
@@ -768,6 +772,47 @@ function drawPulses(){
     ctx.restore();
   }
 }
+// a raker's beam stays put after it fires — a wall of light you have to dash across
+function updateBeams(dt){
+  for(const b of beams){
+    if(b.warn>0){b.warn-=dt;continue;}
+    b.life-=dt;
+    b.hit=Math.max(0,b.hit-dt);
+    if(b.hit>0||state.dashTime>0)continue;
+    const x2=b.x+Math.cos(b.a)*b.len, y2=b.y+Math.sin(b.a)*b.len;
+    if(segDist(player.x,player.y,b.x,b.y,x2,y2)<player.r+13){hurt(b.damage);b.hit=.65;}
+  }
+  beams=beams.filter(b=>b.life>0);
+}
+function drawBeams(){
+  for(const b of beams){
+    const x2=b.x+Math.cos(b.a)*b.len, y2=b.y+Math.sin(b.a)*b.len;
+    ctx.save();
+    ctx.globalCompositeOperation='lighter';
+    ctx.lineCap='round';
+    if(b.warn>0){
+      // telegraph: a thin thread showing exactly where it will land
+      const k=1-b.warn/.85;
+      ctx.globalAlpha=.35+Math.sin(state.time*30)*.2;
+      ctx.strokeStyle=b.color;ctx.lineWidth=1.5+k*2;
+      ctx.setLineDash([9,8]);ctx.lineDashOffset=-state.time*60;
+      ctx.beginPath();ctx.moveTo(b.x,b.y);ctx.lineTo(x2,y2);ctx.stroke();
+      ctx.setLineDash([]);
+    }else{
+      const fade=clamp(b.life/.6,0,1);
+      const w=1+Math.sin(state.time*22)*.12;
+      ctx.globalAlpha=.22*fade;ctx.strokeStyle=b.color;ctx.lineWidth=26*w;
+      ctx.beginPath();ctx.moveTo(b.x,b.y);ctx.lineTo(x2,y2);ctx.stroke();
+      ctx.globalAlpha=.7*fade;ctx.lineWidth=11*w;
+      ctx.beginPath();ctx.moveTo(b.x,b.y);ctx.lineTo(x2,y2);ctx.stroke();
+      ctx.globalAlpha=fade;ctx.strokeStyle='#ffffff';ctx.lineWidth=3.5*w;
+      ctx.beginPath();ctx.moveTo(b.x,b.y);ctx.lineTo(x2,y2);ctx.stroke();
+      ctx.globalAlpha=fade*.9;ctx.fillStyle=b.color;
+      ctx.beginPath();ctx.arc(b.x,b.y,9*w,0,7);ctx.fill();
+    }
+    ctx.restore();
+  }
+}
 function updateRings(dt){
   for(const r of rings){
     r.r+=r.speed*dt;r.life-=dt;
@@ -829,6 +874,20 @@ function moveEnemy(e,dt) {
     burst(e.x,e.y,spec.color,10,110);
   }
   e.shoot-=dt;
+  if(e.type==='seeker'&&e.shoot<=0){
+    // faster, tighter-turning missiles than the ones LANCE seeds
+    const b=ang(e,player);
+    enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(b)*310,vy:Math.sin(b)*310,r:7,life:7,
+      damage:(11+state.room*.35)*difficulty.dmg,homing:1,turn:2.6,color:spec.color,keep:true});
+    e.shoot=rand(2.1,3.4);
+  }
+  if(e.type==='raker'&&e.shoot<=0){
+    // paints a lane across the floor that lingers; you dash through it
+    const b=ang(e,player);
+    beams.push({x:e.x,y:e.y,a:b,len:620,warn:.85,life:3.4,maxLife:3.4,hit:0,
+      damage:20*difficulty.dmg,color:spec.color});
+    e.shoot=rand(3.6,5.2);
+  }
   if((e.type==='bowtie'||e.bossId==='sentinel')&&e.shoot<=0){const b=ang(e,player),boss=e.bossId==='sentinel',shots=boss?[-.24,-.12,0,.12,.24]:[0];for(const offset of shots)enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(b+offset)*(boss?282:224),vy:Math.sin(b+offset)*(boss?282:224),r:boss?7:5,life:4,damage:(boss?16:8+state.room*.5)*difficulty.dmg});e.shoot=boss?1.15:rand(2,3.4);}
 }
 function weapons(dt) {
@@ -904,12 +963,16 @@ function weapons(dt) {
   }
   if(state.weapons.sword){
     const w=state.weapons.sword,reach=w.reach||78,hilt=16,width=w.width||11;
+    // CELESTIAL BLADES wind up when something comes into range
+    const near=enemies.some(e=>onScreen(e)&&dist(e,player)<reach+110);
+    w.rush=(w.rush||0)+((near?1:0)-(w.rush||0))*Math.min(1,dt*5);
+    w.angle=(w.angle||0)+(w.spin||4)*(1+(w.ultimate?w.rush*1.7:0))*dt;
     for(const a of bladeAngles(w)){
       const x1=player.x+Math.cos(a)*hilt,y1=player.y+Math.sin(a)*hilt;
       const x2=player.x+Math.cos(a)*reach,y2=player.y+Math.sin(a)*reach;
       for(const e of enemies){
         if(segDist(e.x,e.y,x1,y1,x2,y2)>e.r+width)continue;
-        e.hp-=w.damage*dt*3.6;e.flash=Math.max(e.flash,.05);
+        e.hp-=w.damage*dt*3.6*(w.ultimate?.78:1);e.flash=Math.max(e.flash,.05);   // four edges each bite a little softer
         if(Math.random()<dt*22)particles.push({x:e.x+rand(-6,6),y:e.y+rand(-6,6),vx:rand(-90,90),vy:rand(-90,90),life:.22,maxLife:.22,color:'#fff6c9',size:2.2,drag:5});
         if(e.numIn<=0){e.numIn=.22;spawnDamageNumber(e.x,e.y,Math.ceil(w.damage*.8),w.color);shake(1);}
       }
@@ -917,7 +980,10 @@ function weapons(dt) {
   }
 }
 // the sword's cutting edges: one blade, plus an opposed second edge once ultimate
-function bladeAngles(w){const a=state.time*(w.spin||4);return w.ultimate?[a,a+Math.PI]:[a];}
+function bladeAngles(w){
+  const a=w.angle||0;
+  return w.ultimate?[a,a+Math.PI/2,a+Math.PI,a+Math.PI*1.5]:[a];
+}
 function segDist(px,py,x1,y1,x2,y2){const dx=x2-x1,dy=y2-y1,L=dx*dx+dy*dy;const t=L?clamp(((px-x1)*dx+(py-y1)*dy)/L,0,1):0;return Math.hypot(px-(x1+dx*t),py-(y1+dy*t));}
 function zapEnemy(w,e,dmg){
   e.hp-=dmg;e.flash=.12;
@@ -1058,7 +1124,7 @@ function updateDelayedBlasts(dt){for(const b of delayedBlasts){b.timer-=dt;if(b.
 function finishRoom(){
   if(state.exit||state.transitioning||state.victoryPortal)return;
   state.active=false;state.intermission=true;
-  enemyBullets.length=0;strikes.length=0;rings.length=0;pulses.length=0;   // the room is won; no dying to a stray shot afterwards
+  enemyBullets.length=0;strikes.length=0;rings.length=0;pulses.length=0;beams.length=0;   // the room is won; no dying to a stray shot afterwards
   state.vacuum=true;
   sfx('cleared');hitStop(.07);
   toast('ROOM '+state.room+' CLEARED');
@@ -1081,11 +1147,11 @@ function showRelics(){state.paused=true;state.relicOpen=true;show('<div class="m
 function claimRelic(id){if(id==='echo')state.echo={x:player.x,y:player.y,fireIn:0};if(id==='cloak')state.hasCloak=true;if(id==='overdrive')Object.values(state.weapons).forEach(w=>w.rate*=1.25);state.relicsTaken.push(id);state.relicRooms[state.room]=true;state.relicOpen=false;state.paused=false;hide();openPortal();}
 const weaponUpgrades={
   bow:[
-    ['bow-split','SPLIT-FLIGHT','Fire one additional arrow.'],
-    ['bow-pierce','PIERCING HEADS','Arrows pass through one extra enemy.'],
-    ['bow-heavy','HEAVY HEADS','Arrows deal +2 damage.'],
+    ['bow-split','SPLIT BARREL','Fire one additional bolt.'],
+    ['bow-pierce','PIERCING ROUNDS','Bolts pass through one extra enemy.'],
+    ['bow-heavy','HEAVY SLUGS','Bolts deal +2 damage.'],
     ['bow-draw','QUICK DRAW','Fire 35% more often.'],
-    ['bow-seeker','SEEKER FLETCHING','Arrows fly 40% faster and steer toward nearby targets.']
+    ['bow-seeker','SEEKER ROUNDS','Bolts fly 40% faster and steer toward nearby targets.']
   ],
   laser:[
     ['laser-focus','FOCUSED BEAM','Laser damage +0.5 per tick.'],
@@ -1127,10 +1193,10 @@ const weaponData={laser:['PRISM LASER','#c879ff',.55,5],bomb:['VOID CHARGE','#ff
 // weapons only a specific character brings; never offered as a normal unlock
 const exclusiveWeapons={aegis:'warden',arc:'revenant'};
 const ultimateData={
-  bow:['STORM VOLLEY','Fires two extra arrows, and every arrow pierces one more enemy.'],
+  bow:['STORM VOLLEY','Fires two extra bolts, and every bolt pierces one more enemy.'],
   laser:['PRISM NOVA','A second beam pulses every 0.4s into the three nearest enemies.'],
   bomb:['VOID SUPERNOVA','A wider secondary blast detonates every 1.6s for double damage.'],
-  sword:['CELESTIAL BLADE','A second edge orbits opposite the first.'],
+  sword:['CELESTIAL BLADES','Four edges orbit you instead of one, and they spin up sharply whenever something comes close.'],
   aegis:['EVENT HORIZON','The field drags enemies inward and its burst hits twice as hard.'],
   arc:['STORM LATTICE','Every discharge also forks to the two enemies nearest you.']
 };
@@ -1476,7 +1542,7 @@ function draw(){
   }
   ctx.translate(-camX,-camY);
   drawBackground();
-  drawStrikes();drawStars();drawEnemies();drawBossArt();drawProjectiles();drawRings();drawPulses();drawBlasts();drawParticles();drawEcho();drawPortal();drawPlayer();drawWeaponEffects();drawDamageNumbers();
+  drawStrikes();drawBeams();drawStars();drawEnemies();drawBossArt();drawProjectiles();drawRings();drawPulses();drawBlasts();drawParticles();drawEcho();drawPortal();drawPlayer();drawWeaponEffects();drawDamageNumbers();
   ctx.restore();
   drawOffscreenMarkers();
   drawVignette();
@@ -2135,8 +2201,9 @@ function drawBlade(w,a){
   ctx.globalCompositeOperation='lighter';
   ctx.strokeStyle=w.color;
   const mid=(hilt+reach)/2, span=reach-hilt;
+  const sweep=1.2*(1+(w.ultimate?(w.rush||0)*.8:0));
   for(let i=1;i<=7;i++){
-    const k=i/7, back=-1.2*k;
+    const k=i/7, back=-sweep*k;
     ctx.globalAlpha=.08*(1-k);
     ctx.lineWidth=span*(1-k*.5);
     ctx.beginPath();ctx.arc(0,0,mid,a+back-.1,a+back+.1);ctx.stroke();
@@ -2567,7 +2634,7 @@ function showStart(){
   const resetRow = confirmingReset
     ? '<div class="reset-row confirming"><span>Erase your best room, '+points+' credits and '+unlocked.size+' unlocked pilot'+(unlocked.size===1?'':'s')+(hardBeaten?', and re-lock IMPOSSIBLE':'')+'? This cannot be undone.</span><button id="resetNo">CANCEL</button><button id="resetYes" class="danger">ERASE</button></div>'
     : '<div class="reset-row"><span>BEST ROOM <b>'+highscore+'</b> <i>&bull;</i> '+points+' CREDITS'+(hardBeaten?' <i>&bull;</i> IMPOSSIBLE UNLOCKED':'')+'</span><button id="resetData">RESET DATA</button></div>';
-  show('<div class="modal"><div class="eyebrow">SHAPESHIFT // NEON SURVIVORS</div><h2>Choose your difficulty</h2><p>Flying as <b style="color:PILOTCOLOR">PILOTNAME</b> &middot; WASD or arrows to move, SHIFT to dash. Your bow fires itself.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>14% less enemy health, 12% slower, 15% softer hits.</p><p class="pay">CREDITS &times;0.7</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Baseline health, speed and damage. The intended run.</p><p class="pay">CREDITS &times;1</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>+28% health, +20% speed, +35% damage. Trapezoids and pentagons hit brutally hard.</p><p class="pay">CREDITS &times;1.75</p><button data-difficulty="hard">START HARD</button></div>' + (hardBeaten ? '<div class="card" style="border-color:#ff0000; box-shadow: 0 0 15px #ff000044;"><span class="card-key" style="color:#ff4f9a">04 // ELITE</span><h3 style="color:#ff4f9a">IMPOSSIBLE</h3><p>Triple health, +80% speed, everything hits twice as hard, and touching a boss kills you outright.</p><p class="pay hot">CREDITS &times;3</p><button data-difficulty="impossible" style="background:#ff4f9a">START IMPOSSIBLE</button></div>' : '') + '</div>' + resetRow + '<button class="continue ghost" id="startBack">BACK</button></div>');
+  show('<div class="modal"><div class="eyebrow">SHAPESHIFT // NEON SURVIVORS</div><h2>Choose your difficulty</h2><p>Flying as <b style="color:PILOTCOLOR">PILOTNAME</b> &middot; WASD or arrows to move, SHIFT to dash. Your blaster fires itself.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>14% less enemy health, 12% slower, 15% softer hits.</p><p class="pay">CREDITS &times;0.7</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Baseline health, speed and damage. The intended run.</p><p class="pay">CREDITS &times;1</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>+28% health, +20% speed, +35% damage. Trapezoids and pentagons hit brutally hard.</p><p class="pay">CREDITS &times;1.75</p><button data-difficulty="hard">START HARD</button></div>' + (hardBeaten ? '<div class="card" style="border-color:#ff0000; box-shadow: 0 0 15px #ff000044;"><span class="card-key" style="color:#ff4f9a">04 // ELITE</span><h3 style="color:#ff4f9a">IMPOSSIBLE</h3><p>Triple health, +80% speed, everything hits twice as hard, and touching a boss kills you outright.</p><p class="pay hot">CREDITS &times;3</p><button data-difficulty="impossible" style="background:#ff4f9a">START IMPOSSIBLE</button></div>' : '') + '</div>' + resetRow + '<button class="continue ghost" id="startBack">BACK</button></div>');
   ui.overlay.innerHTML=ui.overlay.innerHTML.replace('PILOTCOLOR',pilot.color).replace('PILOTNAME',pilot.name);
   document.querySelectorAll('[data-difficulty]').forEach(b=>b.onclick=()=>{confirmingReset=false;clearRun();reset(b.dataset.difficulty);});
   $('#startBack').onclick=showHome;
