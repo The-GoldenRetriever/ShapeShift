@@ -11,7 +11,7 @@ function camera(){
 }
 const MOVE = 1.15;         // how much of that growth travel speeds take on
 const $ = id => document.querySelector(id);
-const ui = { hp: $('#healthFill'), hpText: $('#healthText'), xp: $('#xpFill'), xpText: $('#xpText'), level: $('#levelText'), weapons: $('#weaponList'), room: $('#waveNumber'), roomState: $('#waveState'), kills: $('#killCount'), timer: $('#timer'), best: $('#bestWave'), toast: $('#toast'), dashRow: $('#dashRow'), dashText: $('#dashText'), phaseRow: $('#phaseRow'), phaseText: $('#phaseText'), pulseRow: $('#pulseRow'), pulseText: $('#pulseText'), soundBtn: $('#soundBtn'), xpHud: $('.xp-hud'), arena: $('.arena-label'), fsBtn: $('#fsBtn'), overlay: $('#overlay') };
+const ui = { hp: $('#healthFill'), hpText: $('#healthText'), xp: $('#xpFill'), xpText: $('#xpText'), level: $('#levelText'), weapons: $('#weaponList'), room: $('#waveNumber'), roomState: $('#waveState'), areaBox: $('#areaReadout'), brandSub: $('#brandSub'), kills: $('#killCount'), timer: $('#timer'), best: $('#bestWave'), toast: $('#toast'), dashRow: $('#dashRow'), dashText: $('#dashText'), phaseRow: $('#phaseRow'), phaseText: $('#phaseText'), pulseRow: $('#pulseRow'), pulseText: $('#pulseText'), soundBtn: $('#soundBtn'), xpHud: $('.xp-hud'), arena: $('.arena-label'), fsBtn: $('#fsBtn'), overlay: $('#overlay') };
 const keys = new Set();
 
 // ---- audio ---------------------------------------------------------------
@@ -115,7 +115,17 @@ const types = {
   lance:    { hp: 360, speed: 62, r: 52, color: '#ff8a3d', xp: 155, sides: 3 },
   orbiter:  { hp: 300, speed: 15, r: 70, color: '#8f7dff', xp: 185, sides: 6 },
   beacon:   { hp: 460, speed: 24, r: 58, color: '#5ce0d8', xp: 215, sides: 5 },
-  hollow:   { hp: 420, speed: 19, r: 74, color: '#c14dff', xp: 255, sides: 7 }
+  hollow:   { hp: 420, speed: 19, r: 74, color: '#c14dff', xp: 255, sides: 7 },
+  // the carrier: the biggest hull in the game, and the slowest
+  mothership:{ hp: 420, speed: 16, r: 96, color: '#ff4d4d', xp: 400, sides: 6 },
+  // ---- SECTOR 02 ----------------------------------------------------------
+  // the SENTINEL pattern, built at fighter scale and flown in numbers: the thing
+  // that held area 10 of the first sector is line infantry in the second
+  sentry:  { hp: 9,  speed: 34,  r: 19, color: '#ff4f9a', xp: 24, sides: 8, hold: 260, ring: true },
+  stalker: { hp: 8,  speed: 40,  r: 18, color: '#ff9f4d', xp: 26, sides: 5, hold: 300 },
+  bastion: { hp: 34, speed: 18,  r: 27, color: '#8ad6ff', xp: 34, sides: 6 },
+  // outruns everything in the game, and folds to a single hit
+  dart:    { hp: 2,  speed: 330, r: 12, color: '#ff5fd2', xp: 16, sides: 3 }
 };
 // one boss per ten rooms, cycling once the roster is exhausted.
 // hpMult trades bulk against how dangerous each one's pattern is.
@@ -126,8 +136,56 @@ const bossOrder = [
   { id:'beacon',   name:'BEACON',   hpMult:.95,  contact:24, blurb:'Sweeping beams, blinks away' },
   { id:'hollow',   name:'HOLLOW',   hpMult:.86,  contact:30, blurb:'Shields itself, calls escorts, rings' }
 ];
-const bossForRoom = room => bossOrder[(Math.max(1,Math.floor(room/10))-1) % bossOrder.length];
-let player, enemies, arrows, enemyBullets, stars, particles, blasts, echoShots, damageNumbers, delayedBlasts, strikes, rings, pulses, beams, mines, wells, state;
+// ---- sectors ---------------------------------------------------------------
+// a sector is a whole run's worth of context: how steeply the curve climbs, which
+// shapes fly in it, which bosses hold it, and what the sky over it looks like.
+// Every scaling constant a run reads comes from here rather than from the code.
+const SECTORS=[
+  { id:1, name:'NEON SECTOR', short:'SECTOR 01',
+    blurb:'Open space over a lit deck. Where every wing cuts its teeth.',
+    line:'The baseline curve. Squares and triangles early, gunboats late.',
+    hpBase:1, hpCurve:.035, wave:1, dmgCurve:.025, bossHp:1, bossCurve:.085,
+    credits:1, skill:1, xp:1,
+    color:'#55e6ff',
+    sky:{ stars:['#38507a','#7f9bd6','#eef4ff'],
+          deck:['rgba(24,42,76,.42)','rgba(16,28,54,.24)','rgba(8,13,26,0)'],
+          band:'rgba(64,140,215,', rim:'#2a3d59', edge:'#55e6ff', haze:null } },
+  { id:2, name:'CRIMSON DRIFT', short:'SECTOR 02', req:2,
+    blurb:'A collapsed shipping lane, still burning. Nothing in it is a warm-up.',
+    line:'Opens where the first sector ends: heavier hulls, homing fire, and a curve that climbs half again as fast.',
+    hpBase:1.6, hpCurve:.055, wave:1.22, dmgCurve:.038, bossHp:1.5, bossCurve:.12,
+    // it costs more to fly, so it pays more: better remnants in the air, and a
+    // bigger bank at the end of it
+    credits:1.6, skill:1.5, xp:1.35,
+    color:'#ff5f8d',
+    sky:{ stars:['#5c2740','#b04d6b','#ffdce6'],
+          deck:['rgba(86,22,44,.44)','rgba(50,14,30,.26)','rgba(18,6,13,0)'],
+          band:'rgba(226,72,110,', rim:'#4a2333', edge:'#ff5f8d', haze:'#ff3d6e' } },
+  { id:3, name:'UNCHARTED', short:'SECTOR 03', req:3, soon:true,
+    blurb:'Beyond the drift the charts run out.',
+    line:'Coming soon.' }
+];
+const sectorDef=id=>SECTORS.find(x=>x.id===id)||SECTORS[0];
+// during a run the sector is fixed on `state`; on the menus it is whatever is picked
+const sector=()=>sectorDef(state&&state.sector?state.sector:chosenSector);
+// the last area of a run, and the only fight the rotation does not supply: the
+// MOTHERSHIP is what the roster has been building toward.
+const FINAL_ROOM=50;
+const MOTHERSHIP={ id:'mothership', name:'MOTHERSHIP', hpMult:1.15, contact:34,
+  blurb:'Shells you from range, never stops launching' };
+// each sector holds its rotation in a different order, so the same five fights
+// arrive in a different sequence — and HOLLOW, which the first sector's cap keeps
+// out of reach, opens the second
+const SECTOR_BOSSES={1:['sentinel','lance','orbiter','beacon','hollow'],
+                     2:['hollow','beacon','orbiter','lance','sentinel']};
+const bossRoster=()=>(SECTOR_BOSSES[sector().id]||SECTOR_BOSSES[1])
+  .map(id=>bossOrder.find(b=>b.id===id));
+const bossForRoom = room => {
+  if(room===FINAL_ROOM)return MOTHERSHIP;
+  const roster=bossRoster();
+  return roster[(Math.max(1,Math.floor(room/10))-1) % roster.length];
+};
+let player, enemies, arrows, enemyBullets, stars, particles, blasts, echoShots, damageNumbers, delayedBlasts, strikes, rings, pulses, beams, mines, wells, rockets, walls, state;
 // ---- roster -------------------------------------------------------------
 // hp/speed are multipliers on the 100hp / 288px-per-second baseline.
 // `weapon` grants a weapon nobody else can be offered.
@@ -152,7 +210,8 @@ const characters = {
 // cleared once and starts again from the root of the tree.
 const SAVE_VERSION='2';
 const SAVE_KEYS=['shapeshift_best_room','shapeshift_hard_beaten','shapeshift_points',
-  'shapeshift_unlocked','shapeshift_character','shapeshift_run','shapeshift_skill','shapeshift_tree'];
+  'shapeshift_unlocked','shapeshift_character','shapeshift_run','shapeshift_skill','shapeshift_tree',
+  'shapeshift_sectors','shapeshift_sector'];
 if(localStorage.getItem('shapeshift_version')!==SAVE_VERSION){
   for(const k of SAVE_KEYS)localStorage.removeItem(k);
   localStorage.setItem('shapeshift_version',SAVE_VERSION);
@@ -165,6 +224,11 @@ let unlocked = new Set([STARTER]);
 let chosen = characters[localStorage.getItem('shapeshift_character')] ? localStorage.getItem('shapeshift_character') : STARTER;
 if(!unlocked.has(chosen)) chosen=STARTER;
 let devMode=false, devBackup=null;
+let sectorsOpen = new Set([1]);
+(localStorage.getItem('shapeshift_sectors')||'').split(',').forEach(id=>{const n=parseInt(id,10);if(sectorDef(n)&&!sectorDef(n).soon)sectorsOpen.add(n);});
+let chosenSector = parseInt(localStorage.getItem('shapeshift_sector'),10)||1;
+if(!sectorsOpen.has(chosenSector))chosenSector=1;
+const sectorOpen=id=>sectorsOpen.has(id)||devMode;
 let skill = Math.max(0, parseInt(localStorage.getItem('shapeshift_skill'), 10) || 0);
 let tree = (()=>{ try{ const t=JSON.parse(localStorage.getItem('shapeshift_tree')||'{}'); return (t&&typeof t==='object')?t:{}; }catch(e){ return {}; } })();
 const RUN_KEY='shapeshift_run';
@@ -176,19 +240,21 @@ function clearRun(){ savedRun=null; if(!devMode)localStorage.removeItem(RUN_KEY)
 // only the run's meaning is stored — the room repopulates on resume
 function storeRun(){
   if(!state||devMode)return;
-  savedRun={ v:1, difficulty:state.difficulty, character:state.character,
+  savedRun={ v:1, difficulty:state.difficulty, character:state.character, sector:state.sector,
     room:state.room, level:state.level, xp:state.xp, need:state.need,
     kills:state.kills, time:state.time, paid:state.paidCredits||0,
     globals:state.globals, relicsTaken:state.relicsTaken, relicRooms:state.relicRooms,
     hasCloak:!!state.hasCloak, echo:!!state.echo, beatBest:!!state.beatBest,
     dashPower:state.dashPower, dashCd:state.dashCd, charXp:state.charXp, charDamage:state.charDamage,
     rateScale:state.rateScale, critChance:state.critChance, critMult:state.critMult, paidSkill:state.paidSkill||0,
+    dashShear:state.dashShear||0, dashShove:!!state.dashShove,
     weapons:state.weapons, hp:player.hp, maxHp:player.maxHp, speed:player.speed, regen:player.regen };
   try{ localStorage.setItem(RUN_KEY,JSON.stringify(savedRun)); }catch(e){}
 }
 function resumeRun(){
   const r=savedRun; if(!r)return;
   if(characters[r.character]) chosen=r.character;
+  if(r.sector&&sectorOpen(r.sector)) chosenSector=r.sector;
   reset(r.difficulty);
   state.room=r.room; state.level=r.level; state.xp=r.xp; state.need=r.need;
   state.kills=r.kills; state.time=r.time; state.paidCredits=r.paid||0;
@@ -197,7 +263,10 @@ function resumeRun(){
   state.dashPower=r.dashPower||1; state.dashCd=r.dashCd||3;
   state.charXp=r.charXp||1; state.charDamage=r.charDamage||1;
   state.rateScale=r.rateScale||1; state.critChance=r.critChance||0; state.critMult=r.critMult||1.3;
+  state.dashShear=r.dashShear||0; state.dashShove=!!r.dashShove;
   state.paidSkill=r.paidSkill||0;
+  state.sector=r.sector||1;
+  state.freeDraws=0;   // a resumed run already spent its refits
   if(r.weapons) state.weapons=r.weapons;
   state.hasDraw=hasDraw();
   player.maxHp=r.maxHp; player.hp=Math.min(r.hp,r.maxHp); player.speed=r.speed; player.regen=r.regen;
@@ -207,18 +276,24 @@ function resumeRun(){
 }
 function saveProfile(){
   if(devMode)return;                       // dev mode is a sandbox: the real profile is untouched
+  localStorage.setItem('shapeshift_sectors',[...sectorsOpen].join(','));
+  localStorage.setItem('shapeshift_sector',chosenSector);
   localStorage.setItem('shapeshift_points',points);
   localStorage.setItem('shapeshift_unlocked',[...unlocked].join(','));
   localStorage.setItem('shapeshift_character',chosen);
 }
 // points scale with how deep you got, weighted by how hard you made it
 const creditRate=d=>(difficulties[d]||difficulties.medium).credits;
+// a sector's own multipliers on what a run is worth, defaulting to the first's
+const sectorCredits=()=>sector().credits||1;
+const sectorSkill=()=>sector().skill||1;
+const sectorXp=()=>sector().xp||1;
 // the room term compounds ~4.5% per room (capped), so depth pays disproportionately
 const roomCreditBonus=room=>Math.min(8,Math.pow(1.045,Math.max(0,room-1)));
 // nothing banks until you are past room 5, so bailing out early cannot be farmed
 const CREDIT_MIN_ROOM=6;
 const creditsOwed=()=>Math.max(0,runReward()-(state.paidCredits||0));
-const runReward=()=>state.room<CREDIT_MIN_ROOM?0:Math.max(1,Math.round((state.room*1.5*roomCreditBonus(state.room)+state.kills*.05)*creditRate(state.difficulty)));
+const runReward=()=>state.room<CREDIT_MIN_ROOM?0:Math.max(1,Math.round((state.room*1.5*roomCreditBonus(state.room)+state.kills*.05)*creditRate(state.difficulty)*sectorCredits()));
 // the footer tracks the best room ever reached, overtaken live by the current run
 function recordRoom(room){
   if(room<=highscore)return;
@@ -227,7 +302,7 @@ function recordRoom(room){
   if(!devMode)localStorage.setItem('shapeshift_best_room',highscore);
   paintBest();
   // announce once per run, and not on the very first run when there is no record to beat
-  if(state&&!state.beatBest&&previous>1){state.beatBest=true;toast('NEW BEST — ROOM '+room);}
+  if(state&&!state.beatBest&&previous>1){state.beatBest=true;toast('NEW BEST — AREA '+room);}
 }
 let toastTimer=null;
 function toast(msg){
@@ -238,17 +313,22 @@ function toast(msg){
   toastTimer=setTimeout(()=>ui.toast.classList.remove('show'),2400);
 }
 const difficulties = {
-  easy:       { label: 'EASY',       hp: .86, speed: .88, dmg: .85, heavy: 1.15, credits: .7,  mass: .85, mix: .6,  note: 'Relaxed enemy stats' },
-  medium:     { label: 'MEDIUM',     hp: 1,   speed: 1,   dmg: 1,   heavy: 1.3,  credits: 1,   mass: 1,   mix: 1,   note: 'Standard enemy stats' },
-  hard:       { label: 'HARD',       hp: 1.28,speed: 1.2, dmg: 1.35,heavy: 2.2,  credits: 1.75,mass: 1.22,mix: 1.4, note: 'Fast, reinforced enemies' },
-  impossible: { label: 'IMPOSSIBLE', hp: 3,   speed: 1.8, dmg: 2,   heavy: 2.2,  credits: 3,   mass: 1.5, mix: 1.9, note: 'Absolute carnage. Good luck.' }
+  easy:       { label: 'EASY',       hp: .86, speed: .88, dmg: .85, heavy: 1.15, credits: .7,  mass: .85, mix: .6,  shot: .85, shotLife: .9,  note: 'Relaxed enemy stats' },
+  medium:     { label: 'MEDIUM',     hp: 1,   speed: 1,   dmg: 1,   heavy: 1.3,  credits: 1,   mass: 1,   mix: 1,   shot: 1,   shotLife: 1,   note: 'Standard enemy stats' },
+  hard:       { label: 'HARD',       hp: 1.28,speed: 1.2, dmg: 1.35,heavy: 2.2,  credits: 1.75,mass: 1.22,mix: 1.4, shot: 1.25,shotLife: 1.3, note: 'Fast, reinforced enemies' },
+  impossible: { label: 'IMPOSSIBLE', hp: 3,   speed: 1.8, dmg: 2,   heavy: 2.2,  credits: 3,   mass: 1.5, mix: 1.9, shot: 1.5, shotLife: 1.6, note: 'Absolute carnage. Good luck.' }
 };
+// enemy fire is scaled where it moves rather than where it is fired, so every
+// spawn site — shapes, boss volleys, homing orbs — is covered by the one rule.
+// `shot` is how fast it travels, `shotLife` how long it stays on the board.
+const shotSpeed=()=>(difficulties[state.difficulty]||difficulties.medium).shot||1;
+const shotLife=()=>(difficulties[state.difficulty]||difficulties.medium).shotLife||1;
 // heavy shapes hit far harder than the rest, but nothing one-shots you:
 // a single contact can never take more than this share of your hull.
 const CONTACT_CAP = .7;
 const BOSS_SLAM = 2.2;          // bosses hit far harder than their nominal contact value
 const BOSS_CONTACT_CAP = .92;   // and are allowed much closer to a kill than anything else
-const HEAVY_SHAPES = ['trap','pentagon'];
+const HEAVY_SHAPES = ['trap','pentagon','bastion'];
 
 function resize() {
   // capped at 1.75 rather than 2: the arena grew 44%, this keeps the backing
@@ -260,15 +340,18 @@ function resize() {
 }
 resize(); addEventListener('resize', resize);
 addEventListener('keydown', e => { if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'))return;   // let text fields have their keys
-  const k = e.key.toLowerCase(); if (['arrowup','arrowdown','arrowleft','arrowright',' ','shift'].includes(k)) e.preventDefault(); keys.add(k); if (k === ' ') pause(); if (k === 'shift') dash(); if (k === 'e') phaseCloak(); if (k === 'q') shockPulse(); if (k === 'f') toggleFullscreen(); if (k === 'm'){initAudio();setSound(!soundOn);} });
+  const k = e.key.toLowerCase(); if (['arrowup','arrowdown','arrowleft','arrowright',' ','shift'].includes(k)) e.preventDefault(); keys.add(k); if (k === ' ') pause(); if (k === 'shift') dash(); if (k === 'e') phaseCloak(); if (k === 'q') shockPulse(); if (k === 'f') toggleFullscreen(); if (k === 'm'){initAudio();setSound(!soundOn);}
+  // the sector reel is the one screen that reads the arrow keys as a menu
+  if(sectorScreenOpen()&&(k==='arrowleft'||k==='arrowright')){sfx('ui');cycleSector(k==='arrowleft'?-1:1);} });
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 
 function reset(difficulty = 'medium') {
   const c = characters[chosen] || characters[STARTER];
   const maxHp = Math.round(100 * c.hp);
   player = { x: RW / 2, y: RH / 2, r: 16, hp: maxHp, maxHp, speed: Math.round(288 * c.speed * treeSpeed()), regen: 3 + (c.regen || 0), hurtAt: -10, aim: 0, heading: 0, thrust: 0, vx: 0, vy: 0 };
-  enemies = []; arrows = []; enemyBullets = []; stars = []; particles = []; blasts = []; delayedBlasts = []; echoShots = []; damageNumbers = []; strikes = []; rings = []; pulses = []; beams = []; mines = []; wells = [];
-  state = { difficulty, last: performance.now(), time: 0, room: 1, level: 1, xp: 0, need: 60, kills: 0, left: 0, spawnIn: 0, active: true, paused: false, upgradeOpen: false, intermission: false, transitioning: false, roomTransition: 0, exit: null, relicRooms: {}, globals: {}, relicsTaken: [], relicOpen: false, vacuum: false, beatBest: false, over: false, dying: 0, hitStop: 0, beatIn: 0, lowPulse: 0, knockX: 0, knockY: 0, knockT: 0, paidCredits: 0, portalArm: 0, history: [], echo: null, cloakTime: 0, cloakCooldown: 0, bowIn: 0, laserIn: 0, bombIn: 0, mineIn: 0, dashCooldown: 0, dashTime: 0, dashX: 0, dashY: 0, dashPower: 1, dashCd: 3, pulseCooldown: 0, pulseCd: 14, arcIn: 0, character: STARTER, charXp: 1, charDamage: 1, lastMoveX: 1, lastMoveY: 0, shake: 0, playerAlpha: 1, screenAlpha: 0, cameraZoom: 1, zoomCenterX: RW/2, zoomCenterY: RH/2, victoryPortal: null, victorySequence: null, victoryTimer: 0, roomBanner: null, cameraRot: 0, flash: 0, warp: null, suckR: 0, suckA: 0, suckDir: 1, portalCharge: 0, hurtFlash: 0, weapons: { bow: { name: 'VULCAN CANNON', color: '#55e6ff', damage: 2, rate: 1.3, level: 0, upgrades: 0, taken: [], ultimate: false } } };
+  enemies = []; arrows = []; enemyBullets = []; stars = []; particles = []; blasts = []; delayedBlasts = []; echoShots = []; damageNumbers = []; strikes = []; rings = []; pulses = []; beams = []; mines = []; wells = []; rockets = []; walls = [];
+  state = { difficulty, last: performance.now(), time: 0, room: 1, level: 1, xp: 0, need: 60, kills: 0, left: 0, spawnIn: 0, active: true, paused: false, upgradeOpen: false, intermission: false, transitioning: false, roomTransition: 0, exit: null, relicRooms: {}, globals: {}, relicsTaken: [], relicOpen: false, vacuum: false, beatBest: false, over: false, dying: 0, hitStop: 0, beatIn: 0, lowPulse: 0, knockX: 0, knockY: 0, knockT: 0, paidCredits: 0, portalArm: 0, history: [], echo: null, cloakTime: 0, cloakCooldown: 0, bowIn: 0, laserIn: 0, bombIn: 0, mineIn: 0, missileIn: 0, phalanxIn: 0, dashCooldown: 0, dashTime: 0, dashX: 0, dashY: 0, dashPower: 1, dashCd: 3, pulseCooldown: 0, pulseCd: 14, arcIn: 0, character: STARTER, charXp: 1, charDamage: 1, lastMoveX: 1, lastMoveY: 0, shake: 0, playerAlpha: 1, screenAlpha: 0, cameraZoom: 1, zoomCenterX: RW/2, zoomCenterY: RH/2, victoryPortal: null, victorySequence: null, victoryTimer: 0, roomBanner: null, cameraRot: 0, flash: 0, warp: null, suckR: 0, suckA: 0, suckDir: 1, portalCharge: 0, hurtFlash: 0, weapons: { bow: { name: 'VULCAN CANNON', color: '#55e6ff', damage: 2, rate: 1.3, level: 0, upgrades: 0, taken: [], ultimate: false } } };
+  state.sector=sectorOpen(chosenSector)?chosenSector:1;
   state.character=chosen;
   state.charXp=c.xp||1;
   state.charDamage=(c.damage||1)*treeDamage();
@@ -276,6 +359,7 @@ function reset(difficulty = 'medium') {
   state.critChance=treeCritChance();
   state.critMult=treeCritMult();
   state.hasDash=treeHas('dashDrive');
+  state.dashShear=treeDashShear();state.dashShove=treeDashShove();
   // the repulsor rides on the airframe, so a resumed run gets it back for free
   state.hasPulse=!!c.shock; if(c.shock)state.pulseCd=c.shock;
   state.paidSkill=0;
@@ -284,6 +368,8 @@ function reset(difficulty = 'medium') {
   if(c.weapon) state.weapons[c.weapon]=newWeapon(c.weapon);
   for(const w of Object.values(state.weapons)) scaleWeapon(w);
   state.hasDraw=hasDraw();
+  // FIELD REFIT is spent as ordinary level-up draws, taken before you fly
+  state.freeDraws=treeRank('headstart');
   beginRoom(); hide();
 }
 // pilot and tree multipliers land on a weapon the moment it is created
@@ -332,21 +418,40 @@ function edge() {
   }
   return {x:cx,y:cy};
 }
-const spawnTable=[
-  {t:'square',   from:1,  base:34, growth:-.72},
-  {t:'triangle', from:1,  base:22, growth:-.62},
-  {t:'hex',      from:3,  base:18, growth:-.28},
-  {t:'diamond',  from:4,  base:16, growth:-.2 },
-  {t:'trap',     from:6,  base:12, growth: .35},
-  {t:'bowtie',   from:8,  base:12, growth: .15},
-  {t:'pentagon', from:10, base: 8, growth:1.5 },
-  {t:'prism',    from:12, base: 9, growth:1.2 },
-  {t:'seeker',   from:21, base: 9, growth:1.3 },
-  {t:'raker',    from:25, base: 8, growth:1.3 }
-];
+// one table per sector. The second opens roughly where the first was getting
+// dangerous — nothing in it is a warm-up, and its own shapes climb from there.
+const SECTOR_SPAWNS={
+  1:[
+    {t:'square',   from:1,  base:34, growth:-.72},
+    {t:'triangle', from:1,  base:22, growth:-.62},
+    {t:'hex',      from:3,  base:18, growth:-.28},
+    {t:'diamond',  from:4,  base:16, growth:-.2 },
+    {t:'trap',     from:6,  base:12, growth: .35},
+    {t:'bowtie',   from:8,  base:12, growth: .15},
+    {t:'pentagon', from:10, base: 8, growth:1.5 },
+    {t:'prism',    from:12, base: 9, growth:1.2 },
+    {t:'seeker',   from:21, base: 9, growth:1.3 },
+    {t:'raker',    from:25, base: 8, growth:1.3 }
+  ],
+  2:[
+    {t:'triangle', from:1,  base:22, growth:-.8 },
+    {t:'hex',      from:1,  base:20, growth:-.45},
+    {t:'diamond',  from:1,  base:14, growth:-.3 },
+    {t:'dart',     from:2,  base: 9, growth: .8 },
+    {t:'trap',     from:2,  base:13, growth: .35},
+    {t:'bowtie',   from:3,  base:13, growth: .2 },
+    {t:'sentry',   from:4,  base:13, growth:1.1 },
+    {t:'stalker',  from:6,  base:11, growth:1.35},
+    {t:'bastion',  from:8,  base:10, growth:1.45},
+    {t:'pentagon', from:10, base: 9, growth:1.1 },
+    {t:'prism',    from:11, base: 9, growth:1   },
+    {t:'seeker',   from:13, base: 9, growth:1.2 },
+    {t:'raker',    from:16, base: 8, growth:1.25}
+  ]
+};
 function spawnWeights(room,mix){
   const out=[];
-  for(const e of spawnTable){
+  for(const e of (SECTOR_SPAWNS[sector().id]||SECTOR_SPAWNS[1])){
     if(room<e.from)continue;
     const progress=clamp((room-e.from)/25,0,1);
     // harder settings lean into the shift; weak shapes fade faster, strong ones swell
@@ -363,21 +468,38 @@ function type() {
   for(const e of w){ r-=e.w; if(r<=0)return e.t; }
   return w[w.length-1].t;
 }
+// one hp curve for every spawn site, so a sector's steepness cannot drift apart
+// between the drip-feed and whatever a boss launches
+function enemyHp(spec){
+  const sec=sector(), difficulty=difficulties[state.difficulty]||difficulties.medium;
+  return Math.max(1, Math.ceil(spec.hp * 1.1 * sec.hpBase * difficulty.hp * (1 + (state.room-1) * sec.hpCurve)));
+}
 function spawn() {
   const name=type(), spec=types[name], p=edge();
-  const difficulty = difficulties[state.difficulty];
-  const hp = Math.max(1, Math.ceil(spec.hp * 1.1 * difficulty.hp * (1 + (state.room - 1) * .035)));
+  const hp = enemyHp(spec);
   enemies.push({type:name,x:p.x,y:p.y,hp,maxHp:hp,r:spec.r,shoot:rand(1,3),phase:Math.random()*7,flash:0,slowT:0,slowAmt:0,rot:ang(p,player),born:state.time,numIn:0});
+}
+// the top-left readout reports the area you are flying. Outside a run there is no
+// area, so it is hidden rather than left showing whatever the last one said.
+let inRun=false;
+function setInRun(on){inRun=on;if(ui.areaBox)ui.areaBox.classList.toggle('idle',!on);paintBrand();}
+// the strapline under the wordmark is the sector you are in, or the one you have picked
+function paintBrand(){
+  if(!ui.brandSub)return;
+  const sec=sectorDef(inRun&&state&&state.sector?state.sector:chosenSector);
+  ui.brandSub.textContent=sec.name+' // '+sec.short;
+  ui.brandSub.style.color=sec.color||'';
 }
 function beginRoom() {
   camera();   // the opening wave spawns relative to the view, so fix it on the player first
   const bossRoom=state.room%10===0;
   const mass=(difficulties[state.difficulty]||difficulties.medium).mass||1;
-  const wave=Math.round((12+state.room*6+Math.pow(state.room,1.3)*.35)*mass);
+  const wave=Math.round((12+state.room*6+Math.pow(state.room,1.3)*.35)*mass*sector().wave);
   state.active=true; state.intermission=false; state.exit=null; state.vacuum=false; state.left=bossRoom?0:wave; state.spawnIn=.55;
   if(bossRoom){spawnBoss();sfx('boss');}
   for(let i=0;i<Math.min(Math.round(14*mass),state.left);i++){spawn();state.left--;}
   ui.room.textContent=state.room; ui.roomState.textContent=bossRoom?bossForRoom(state.room).name+' // '+bossForRoom(state.room).blurb:'HOSTILES INBOUND';
+  setInRun(true);
   recordRoom(state.room);
   const bossDef=bossRoom?bossForRoom(state.room):null;
   state.roomBanner={room:state.room,life:bossRoom?4.2:BANNER_TIME,total:bossRoom?4.2:BANNER_TIME,
@@ -389,7 +511,8 @@ function spawnBoss(){
   // each full pass through the roster adds a flat bulk bonus, so cycling back
   // to SENTINEL at room 60 is still tougher than HOLLOW at room 50
   const cycle=Math.floor((Math.max(1,Math.floor(state.room/10))-1)/bossOrder.length);
-  const hp=Math.ceil(spec.hp*def.hpMult*difficulty.hp*(1+Math.max(0,state.room-10)*.085)*(1+cycle*.75));
+  const sec=sector();
+  const hp=Math.ceil(spec.hp*def.hpMult*sec.bossHp*difficulty.hp*(1+Math.max(0,state.room-10)*sec.bossCurve)*(1+cycle*.75));
   enemies.push({type:def.id,bossId:def.id,contact:def.contact,x:RW/2,y:220,hp,maxHp:hp,r:spec.r,
     shoot:1.1,phase:0,flash:0,slowT:0,slowAmt:0,boss:true,rot:0,born:state.time,numIn:0,
     mode:'idle',timer:1.2,beamRot:0,shield:0,adds:0,blinkT:0});
@@ -400,9 +523,12 @@ const onScreen=(e,pad)=>{
   const m=(pad||0)+(e.r||0);
   return e.x>camX-m && e.x<camX+W+m && e.y>camY-m && e.y<camY+H+m;
 };
+// a shape at 0 hp is a corpse waiting for deaths() at the end of the frame: it is
+// still in `enemies`, and firing at it would throw the shot away
+const liveTarget=e=>e.hp>0;
 function nearest() {
   let best=null, bestD=Infinity;
-  for(const e of enemies){ if(!onScreen(e))continue; const d=dist(player,e); if(d<bestD){best=e;bestD=d;} }
+  for(const e of enemies){ if(!liveTarget(e)||!onScreen(e))continue; const d=dist(player,e); if(d<bestD){best=e;bestD=d;} }
   return best;
 }
 function fire() {
@@ -445,7 +571,33 @@ function dash(){
   let y=(keys.has('s')||keys.has('arrowdown')?1:0)-(keys.has('w')||keys.has('arrowup')?1:0);
   if(!x&&!y){x=state.lastMoveX;y=state.lastMoveY;}
   const len=Math.hypot(x,y)||1;state.dashX=x/len;state.dashY=y/len;state.dashTime=.22;state.dashCooldown=state.dashCd||3;shake(4);sfx('dash');
+  state.dashHit=[];      // one shear per shape per dash, however long you are inside it
   burst(player.x,player.y,pilotColor(),Math.round(24*(state.dashPower||1)),220*(state.dashPower||1));
+}
+// SHEAR DRIVE. The dash already passes through everything harmlessly; this makes
+// the pass cost the shape something, and at the second rank throws it sideways out
+// of the lane so the way through stays open behind you.
+function shearDash(){
+  const hit=state.dashHit||(state.dashHit=[]);
+  const nx=state.dashX, ny=state.dashY;
+  for(const e of enemies){
+    if(!liveTarget(e)||hit.includes(e))continue;
+    if(dist(e,player)>e.r+player.r+8)continue;
+    hit.push(e);
+    const h=critHit(state.dashShear*(state.charDamage||1));
+    e.hp-=h.dmg;e.flash=h.crit?.22:.14;
+    spawnDamageNumber(e.x,e.y,Math.ceil(h.dmg),pilotColor(),h.crit);
+    burst(e.x,e.y,pilotColor(),8,170,{size:2.2,drag:4});
+    sfx('hit');
+    if(state.dashShove){
+      // sideways, never backwards: shoving along the dash would drag it with you
+      const dx=e.x-player.x, dy=e.y-player.y;
+      let sx=-ny, sy=nx;
+      if(dx*sx+dy*sy<0){sx=-sx;sy=-sy;}      // whichever side it is already drifting
+      e.kx=sx*DASH_SHOVE;e.ky=sy*DASH_SHOVE;e.kt=.3;e.ktMax=.3;
+      e.slowT=Math.max(e.slowT||0,.35);e.slowAmt=Math.max(e.slowAmt||0,.3);
+    }
+  }
 }
 function update(dt,real) {
   real=real||dt;
@@ -594,6 +746,7 @@ function update(dt,real) {
     player.x=clamp(player.x+state.dashX*ds*dt,45,RW-45);
     player.y=clamp(player.y+state.dashY*ds*dt,65,RH-45);
     burst(player.x-state.dashX*10,player.y-state.dashY*10,pilotColor(),2,90);
+    if(state.dashShear>0)shearDash();
   }else{
     const targetVx=(mx/ml)*player.speed,targetVy=(my/ml)*player.speed;
     if(mx||my){player.vx+=(targetVx-player.vx)*12*dt;player.vy+=(targetVy-player.vy)*12*dt;}else{player.vx-=player.vx*15*dt;player.vy-=player.vy*15*dt;}
@@ -632,7 +785,7 @@ function update(dt,real) {
   if(state.active&&state.left>0){state.spawnIn-=dt;if(state.spawnIn<=0){spawn();state.left--;state.spawnIn=Math.max(.16,(.55-state.room*.02)/((difficulties[state.difficulty]||difficulties.medium).mass||1));}}
   state.bowIn-=dt;if(state.bowIn<=0){fire();state.bowIn=1/state.weapons.bow.rate;}
   for(const e of enemies) moveEnemy(e,dt);
-  weapons(dt); updateArrows(dt); updateEchoShots(dt); updateEnemyBullets(dt); updateStars(dt); deaths(); updateParticles(dt); updateBlasts(dt); updateDelayedBlasts(dt); updateMines(dt); updateWells(dt); updateStrikes(dt); updateRings(dt); updatePulses(dt); updateBeams(dt); updateDamageNumbers(dt);
+  weapons(dt); updateArrows(dt); updateRockets(dt); updateWalls(dt); updateEchoShots(dt); updateEnemyBullets(dt); updateStars(dt); deaths(); updateParticles(dt); updateBlasts(dt); updateDelayedBlasts(dt); updateMines(dt); updateWells(dt); updateStrikes(dt); updateRings(dt); updatePulses(dt); updateBeams(dt); updateDamageNumbers(dt);
   if(state.active&&state.left===0&&enemies.length===0) finishRoom();
   if(player.hp<=0&&!state.dying&&!state.over){
     state.dying=1.05;
@@ -780,10 +933,52 @@ const bossBehaviour={
     }
   }
 };
+// how the carrier fights: it holds this far out, keeps this many launches in the
+// air at once, and picks its brood from shapes that can actually close on you
+const MOTHER_HOLD=560, MOTHER_BROOD=10;
+const MOTHER_BROOD_TYPES=['triangle','diamond','bowtie','prism'];
+// area 50 — the finale, and the only boss that never comes to you. It sits at the
+// far edge of the view shelling the ground you stand on while its bays keep the
+// floor full. Closing that distance, and staying closed, is the whole fight.
+bossBehaviour.mothership=function(e,dt,difficulty,spec,a){
+  const d=dist(e,player)||1;
+  if(d<MOTHER_HOLD)bossStep(e,dt,-1.5,difficulty,a);              // backs off when you close
+  else if(d>MOTHER_HOLD+260)bossStep(e,dt,1.2,difficulty,a);      // and reels you back in if you run
+  // a slow lateral wander on top, so it is never a parked target
+  e.driftA=(e.driftA||0)+dt*.55;
+  e.x=clamp(e.x+Math.cos(e.driftA)*52*dt*difficulty.speed,e.r,RW-e.r);
+  e.y=clamp(e.y+Math.sin(e.driftA*.8)*34*dt*difficulty.speed,e.r,RH-e.r);
+  // ---- launch bays ----------------------------------------------------------
+  const brood=enemies.reduce((n,x)=>n+(x.escortOf===e?1:0),0);
+  const cap=Math.round(MOTHER_BROOD*(difficulty.mass||1));
+  e.launchIn=(e.launchIn||0)-dt;
+  if(e.launchIn<=0){
+    const n=Math.min(Math.max(0,cap-brood),3);
+    for(let i=0;i<n;i++){
+      const ba=state.time*.6+i*Math.PI*2/3+rand(-.3,.3);
+      const add=spawnAt(MOTHER_BROOD_TYPES[Math.floor(Math.random()*MOTHER_BROOD_TYPES.length)],
+        clamp(e.x+Math.cos(ba)*(e.r+26),40,RW-40),clamp(e.y+Math.sin(ba)*(e.r+26),50,RH-50));
+      if(add){add.escortOf=e;burst(add.x,add.y,spec.color,9,170,{size:2.4,drag:3});}
+    }
+    if(n){e.bayFlash=.35;sfx('pip');}
+    e.launchIn=n?2.6:1;      // a full deck retries sooner than it relaunches
+  }
+  e.bayFlash=Math.max(0,(e.bayFlash||0)-dt);
+  // ---- the guns -------------------------------------------------------------
+  e.shellIn=(e.shellIn||0)-dt;
+  if(e.shellIn<=0){
+    for(const off of [-.26,0,.26])bossOrb(e,a+off,215*difficulty.speed,11*difficulty.dmg);
+    // and one telegraphed shell on your position — the range is only safe if you move
+    strikes.push({x:clamp(player.x,40,RW-40),y:clamp(player.y,50,RH-40),
+      r:96,timer:1.25,maxTimer:1.25,damage:22*difficulty.dmg,color:spec.color});
+    sfx('shoot');
+    e.gunFlash=.3;e.shellIn=rand(2.6,3.4);
+  }
+  e.gunFlash=Math.max(0,(e.gunFlash||0)-dt);
+};
 function spawnAt(name,x,y){
   const spec=types[name];if(!spec)return null;
-  const difficulty=difficulties[state.difficulty];
-  const hp=Math.max(1,Math.ceil(spec.hp*1.1*difficulty.hp*(1+(state.room-1)*.035)));
+  const hp=enemyHp(spec);
   const e={type:name,x,y,hp,maxHp:hp,r:spec.r,shoot:rand(1,3),phase:Math.random()*7,flash:0,slowT:0,slowAmt:0,
     rot:ang({x,y},player),born:state.time,numIn:0};
   enemies.push(e);
@@ -951,7 +1146,7 @@ function moveEnemy(e,dt) {
         if(state.difficulty==='impossible'){
           hurt(player.hp);
         }else{
-          const raw=(e.contact||28)*BOSS_SLAM*(1+(state.room-1)*.025)*difficulty.dmg*mitigation;
+          const raw=(e.contact||28)*BOSS_SLAM*(1+(state.room-1)*sector().dmgCurve)*difficulty.dmg*mitigation;
           hurt(Math.min(raw,player.maxHp*BOSS_CONTACT_CAP));
         }
         knockback(e,1500,.3);
@@ -962,7 +1157,7 @@ function moveEnemy(e,dt) {
         // a wounded shape hits softer than a fresh one — it is running on fumes
         const wounded=.15+.85*clamp(e.hp/e.maxHp,0,1);
         const heavy=HEAVY_SHAPES.includes(e.type)?difficulty.heavy:1;
-        const raw=(10+spec.hp*1.5+(spec.speed>=60?5:0))*wounded*heavy*(1+(state.room-1)*.025)*difficulty.dmg*mitigation;
+        const raw=(10+spec.hp*1.5+(spec.speed>=60?5:0))*wounded*heavy*(1+(state.room-1)*sector().dmgCurve)*difficulty.dmg*mitigation;
         hurt(Math.min(raw,player.maxHp*CONTACT_CAP));
         e.hp=0;spawnDamageNumber(e.x,e.y,999,'#fff');shake(4);
         e.touch=.55;
@@ -978,6 +1173,14 @@ function moveEnemy(e,dt) {
       damage:(11+state.room*.35)*difficulty.dmg,homing:1,turn:2.6,color:spec.color,keep:true});
     e.shoot=rand(2.1,3.4);
   }
+  // STALKER fire tracks: slower than a SEEKER missile, but it turns harder and
+  // there is usually more than one of them in the air
+  if(e.type==='stalker'&&e.shoot<=0){
+    const b=ang(e,player);
+    enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(b)*236,vy:Math.sin(b)*236,r:6,life:6,
+      damage:(9+state.room*.3)*difficulty.dmg,homing:1,turn:3.1,color:spec.color,keep:true});
+    e.shoot=rand(1.8,2.9);
+  }
   if(e.type==='raker'&&e.shoot<=0){
     // paints a lane across the floor that lingers; you dash through it
     const b=ang(e,player);
@@ -985,7 +1188,9 @@ function moveEnemy(e,dt) {
       damage:20*difficulty.dmg,color:spec.color});
     e.shoot=rand(3.6,5.2);
   }
-  if((e.type==='bowtie'||e.bossId==='sentinel')&&e.shoot<=0){const b=ang(e,player),boss=e.bossId==='sentinel',shots=boss?[-.24,-.12,0,.12,.24]:[0];for(const offset of shots)enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(b+offset)*(boss?282:224),vy:Math.sin(b+offset)*(boss?282:224),r:boss?7:5,life:4,damage:(boss?16:8+state.room*.5)*difficulty.dmg});e.shoot=boss?1.15:rand(2,3.4);}
+  // the SENTINEL volley, at three scales: the boss, the fighter built on its
+  // pattern, and the bowtie's single pot-shot
+  if((e.type==='bowtie'||e.type==='sentry'||e.bossId==='sentinel')&&e.shoot<=0){const b=ang(e,player),boss=e.bossId==='sentinel',sentry=e.type==='sentry',shots=boss?[-.24,-.12,0,.12,.24]:sentry?[-.15,0,.15]:[0];for(const offset of shots)enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(b+offset)*(boss?282:sentry?252:224),vy:Math.sin(b+offset)*(boss?282:sentry?252:224),r:boss?7:sentry?6:5,life:4,damage:(boss?16:sentry?10+state.room*.35:8+state.room*.5)*difficulty.dmg});e.shoot=boss?1.15:sentry?rand(1.9,2.8):rand(2,3.4);}
 }
 function weapons(dt) {
   if(state.weapons.laser){
@@ -1010,6 +1215,34 @@ function weapons(dt) {
     }
   }
   if(state.weapons.bomb){state.bombIn-=dt;if(state.bombIn<=0){const w=state.weapons.bomb,t=nearest();if(t)detonate(w,t.x,t.y,w.radius||135,w.damage,w.double?{timer:.75,damage:w.damage*.55}:null);state.bombIn=1/w.rate;}}
+  if(state.weapons.missile){
+    const w=state.weapons.missile;
+    state.missileIn-=dt;
+    if(state.missileIn<=0){
+      const t=nearest();
+      if(t){
+        const a=ang(player,t);
+        if(w.ultimate)for(const off of [-.2,-.07,.07,.2])spawnRocket(w,a+off,470,off);
+        else{ spawnRocket(w,a,470,0); if(w.twin)spawnRocket(w,a+rand(-.16,.16),470,0); }
+        sfx('boom');
+        state.missileIn=1/w.rate;
+      }else state.missileIn=.12;      // hold the salvo until there is a target
+    }
+  }
+  if(state.weapons.phalanx){
+    const w=state.weapons.phalanx;
+    state.phalanxIn-=dt;
+    if(state.phalanxIn<=0){
+      const t=nearest();
+      if(t){
+        const a=ang(player,t);
+        spawnWall(w,a);
+        if(w.ultimate)spawnWall(w,a+Math.PI);
+        sfx('portal');shake(3);
+        state.phalanxIn=1/w.rate;
+      }else state.phalanxIn=.12;
+    }
+  }
   if(state.weapons.mine){
     const w=state.weapons.mine;
     state.mineIn-=dt;
@@ -1018,7 +1251,7 @@ function weapons(dt) {
       if(t){
         spawnMine(w,t.x,t.y);
         if(w.multi){
-          const second=enemies.filter(e=>e!==t&&onScreen(e)).sort((a,b)=>dist(a,player)-dist(b,player))[0];
+          const second=enemies.filter(e=>liveTarget(e)&&e!==t&&onScreen(e)).sort((a,b)=>dist(a,player)-dist(b,player))[0];
           if(second)spawnMine(w,second.x,second.y);
         }
       }
@@ -1062,10 +1295,10 @@ function weapons(dt) {
           hit.push(node);path.push({x:node.x,y:node.y});
           zapEnemy(w,node,dmg);
           dmg*=.78;
-          node=enemies.filter(e=>!hit.includes(e)&&onScreen(e)&&dist(e,node)<reach).sort((a,b)=>dist(a,node)-dist(b,node))[0];
+          node=enemies.filter(e=>liveTarget(e)&&!hit.includes(e)&&onScreen(e)&&dist(e,node)<reach).sort((a,b)=>dist(a,node)-dist(b,node))[0];
         }
         if(w.ultimate){
-          const extra=enemies.filter(e=>!hit.includes(e)&&onScreen(e)).sort((a,b)=>dist(a,player)-dist(b,player)).slice(0,2);
+          const extra=enemies.filter(e=>liveTarget(e)&&!hit.includes(e)&&onScreen(e)).sort((a,b)=>dist(a,player)-dist(b,player)).slice(0,2);
           for(const e of extra){zapEnemy(w,e,w.damage*.6);path.push({x:player.x,y:player.y},{x:e.x,y:e.y});}
         }
         w.bolt=path;w.boltT=.16;shake(2);
@@ -1230,12 +1463,124 @@ function updateMines(dt){
   }
   mines=mines.filter(m=>!m.dead);
 }
+// ---- WARHEAD SALVO ---------------------------------------------------------
+// unlike the torpedo, which simply detonates on a target, a warhead is a physical
+// thing that has to fly there. It steers loosely, so a shape that moves after the
+// launch can still be missed — the trade for how hard it lands.
+function spawnRocket(w,a,speed,spread){
+  rockets.push({x:player.x,y:player.y,vx:Math.cos(a)*speed,vy:Math.sin(a)*speed,
+    a,life:2.6,damage:w.damage,radius:w.radius||150,color:w.color,
+    cluster:!!w.cluster,turn:spread?1.1:2.3,drift:spread||0});
+}
+function updateRockets(dt){
+  const w=state.weapons.missile;
+  for(const r of rockets){
+    const t=enemies.filter(liveTarget).reduce((best,e)=>onScreen(e)&&(!best||dist(e,r)<dist(best,r))?e:best,null);
+    if(t){
+      let cur=Math.atan2(r.vy,r.vx),want=ang(r,t)+r.drift,diff=want-cur;
+      while(diff<-Math.PI)diff+=Math.PI*2;while(diff>Math.PI)diff-=Math.PI*2;
+      cur+=clamp(diff,-r.turn*dt,r.turn*dt);
+      const sp=Math.hypot(r.vx,r.vy);
+      r.vx=Math.cos(cur)*sp;r.vy=Math.sin(cur)*sp;
+    }
+    r.x+=r.vx*dt;r.y+=r.vy*dt;r.life-=dt;
+    if(Math.random()<dt*30)particles.push({x:r.x,y:r.y,vx:rand(-40,40),vy:rand(-40,40),life:.34,maxLife:.34,color:'#ffb066',size:2.2,drag:3});
+    const hit=enemies.find(e=>liveTarget(e)&&dist(r,e)<e.r+9);
+    if(hit||r.life<=0||r.x<0||r.x>RW||r.y<0||r.y>RH){
+      if(w)detonate(w,clamp(r.x,0,RW),clamp(r.y,0,RH),r.radius,r.damage,
+        r.cluster?{timer:.55,damage:r.damage*.45}:null);
+      if(r.cluster&&w)for(let i=0;i<3;i++){
+        const ca=Math.random()*Math.PI*2, cd=r.radius*.7;
+        delayedBlasts.push({x:clamp(r.x+Math.cos(ca)*cd,0,RW),y:clamp(r.y+Math.sin(ca)*cd,0,RH),
+          radius:r.radius*.5,timer:.35+i*.22,damage:r.damage*.4,color:r.color});
+      }
+      r.life=0;
+    }
+  }
+  rockets=rockets.filter(r=>r.life>0);
+}
+function drawRockets(){
+  ctx.save();
+  for(const r of rockets){
+    const dir=Math.atan2(r.vy,r.vx);
+    ctx.save();ctx.translate(r.x,r.y);ctx.rotate(dir);
+    ctx.globalCompositeOperation='lighter';
+    ctx.globalAlpha=.5;ctx.fillStyle='#ff7a2a';flameTongue(-4,0,Math.PI,26,4.4);
+    ctx.globalCompositeOperation='source-over';
+    ctx.globalAlpha=1;ctx.fillStyle='#ffe6cf';ctx.shadowColor=r.color;ctx.shadowBlur=12;
+    ctx.beginPath();ctx.moveTo(13,0);ctx.lineTo(-5,5);ctx.lineTo(-2,0);ctx.lineTo(-5,-5);ctx.closePath();ctx.fill();
+    ctx.shadowBlur=0;ctx.restore();
+  }
+  ctx.restore();
+}
+// ---- PHALANX WALL ----------------------------------------------------------
+// a launched slab rather than a shot: it barely hurts, but nothing it touches
+// stays where it was. Its job is to buy back the space around you.
+const WALL_SPEED=560;
+const WALL_LEG=1.35;
+function spawnWall(w,a,recall){
+  const back=recall===undefined?!!w.recall:recall;
+  const life=back?WALL_LEG*2:WALL_LEG;
+  walls.push({x:player.x,y:player.y,a,span:w.span||200,speed:WALL_SPEED,
+    damage:w.damage,push:(w.push||1)*1100,color:w.color,life,maxLife:life,
+    recall:back,stun:!!w.ultimate,hit:[]});
+}
+function updateWalls(dt){
+  for(const wl of walls){
+    wl.life-=dt;
+    // RECALL FIELD flips the wall around at the halfway mark and sweeps it home
+    const back=wl.recall&&wl.life<wl.maxLife*.5;
+    const dir=back?-1:1;
+    wl.x+=Math.cos(wl.a)*wl.speed*dir*dt;
+    wl.y+=Math.sin(wl.a)*wl.speed*dir*dt;
+    if(back&&!wl.flipped){wl.flipped=true;wl.hit=[];}   // it may catch the same shape once each way
+    const nx=Math.cos(wl.a), ny=Math.sin(wl.a);
+    for(const e of enemies){
+      if(!liveTarget(e)||wl.hit.includes(e))continue;
+      // distance along the wall's face, and across it
+      const dx=e.x-wl.x, dy=e.y-wl.y;
+      const across=dx*nx+dy*ny, along=-dx*ny+dy*nx;
+      if(Math.abs(across)>e.r+16||Math.abs(along)>wl.span/2+e.r)continue;
+      wl.hit.push(e);
+      const h=critHit(wl.damage);
+      e.hp-=h.dmg;e.flash=h.crit?.24:.16;
+      spawnDamageNumber(e.x,e.y,Math.ceil(h.dmg),wl.color,h.crit);
+      e.kx=nx*wl.push*dir;e.ky=ny*wl.push*dir;e.kt=.34;e.ktMax=.34;
+      if(wl.stun){e.slowT=Math.max(e.slowT||0,1);e.slowAmt=Math.max(e.slowAmt||0,.75);}
+      burst(e.x,e.y,wl.color,7,150,{size:2.2,drag:4});
+    }
+    if(wl.x<-200||wl.x>RW+200||wl.y<-200||wl.y>RH+200)wl.life=0;
+  }
+  walls=walls.filter(w=>w.life>0);
+}
+function drawPhalanx(){
+  ctx.save();
+  ctx.globalCompositeOperation='lighter';
+  for(const wl of walls){
+    const k=clamp(wl.life/wl.maxLife,0,1);
+    ctx.save();ctx.translate(wl.x,wl.y);ctx.rotate(wl.a);
+    const h=wl.span/2;
+    const g=ctx.createLinearGradient(0,-h,0,h);
+    g.addColorStop(0,rgba(wl.color,0));
+    g.addColorStop(.5,rgba(wl.color,.55*k+.2));
+    g.addColorStop(1,rgba(wl.color,0));
+    ctx.fillStyle=g;ctx.fillRect(-9,-h,18,h*2);
+    ctx.globalAlpha=.75*k;
+    ctx.strokeStyle='#ffffff';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(0,-h*.92);ctx.lineTo(0,h*.92);ctx.stroke();
+    // a leading edge that reads as a shove rather than a beam
+    ctx.globalAlpha=.35*k;ctx.strokeStyle=wl.color;ctx.lineWidth=6;
+    ctx.beginPath();ctx.arc(0,0,h*1.02,-1.05,1.05);ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+}
 function updateArrows(dt) {
   for(const a of arrows){
     if(a.homing){
       a.homeIn=(a.homeIn||0)-dt;
       // each arrow chases whatever is nearest to itself — an enemy, or an incoming bullet worth intercepting
-      let t=[...enemies,...enemyBullets].reduce((best,e)=>{if(!onScreen(e))return best;const d=dist(e,a);return d<440&&(!best||d<best.d)?{e,d}:best;},null);
+      let t=[...enemies.filter(liveTarget),...enemyBullets].reduce((best,e)=>{if(!onScreen(e))return best;const d=dist(e,a);return d<440&&(!best||d<best.d)?{e,d}:best;},null);
       // stay on the target it was fired at unless something else is right on top of it
       if(a.tgt&&a.tgt.hp>0&&enemies.includes(a.tgt)&&(!t||t.d>120))t={e:a.tgt,d:dist(a.tgt,a)};
       // long shots fan out before steering; a point-blank shot has no time to
@@ -1253,7 +1598,7 @@ function updateArrows(dt) {
     a.x+=a.vx*dt;a.y+=a.vy*dt;a.life-=dt;
     if(Math.random()<dt*14)particles.push({x:a.x-a.vx*.012,y:a.y-a.vy*.012,vx:rand(-30,30),vy:rand(-30,30),life:.22,maxLife:.22,color:'#ffb54a',size:1.5,drag:6});
     // an arrow may only score once per enemy — pierce carries it through to the next one
-    for(const e of enemies)if(a.life>0&&dist(a,e)<e.r+5&&!(a.hit&&a.hit.includes(e))){
+    for(const e of enemies)if(a.life>0&&liveTarget(e)&&dist(a,e)<e.r+5&&!(a.hit&&a.hit.includes(e))){
       (a.hit||(a.hit=[])).push(e);
       const ah=critHit(a.damage);
       e.hp-=ah.dmg;e.flash=ah.crit?.2:.1;spawnDamageNumber(e.x,e.y,Math.ceil(ah.dmg),a.color,ah.crit);shake(ah.crit?4:2);sfx('hit');
@@ -1268,7 +1613,7 @@ function updateArrows(dt) {
   }
   arrows=arrows.filter(a=>a.life>0&&a.x>0&&a.x<RW&&a.y>0&&a.y<RH);
 }
-function updateEchoShots(dt){for(const s of echoShots){s.x+=s.vx*dt;s.y+=s.vy*dt;s.life-=dt;for(const e of enemies)if(s.life>0&&dist(s,e)<e.r+6){e.hp-=s.damage;e.flash=.12;spawnDamageNumber(e.x,e.y,Math.ceil(s.damage),s.color);s.life=0;burst(s.x,s.y,'#a6d8ff',5,80);}}echoShots=echoShots.filter(s=>s.life>0&&s.x>0&&s.x<W&&s.y>0&&s.y<H);}
+function updateEchoShots(dt){for(const s of echoShots){s.x+=s.vx*dt;s.y+=s.vy*dt;s.life-=dt;for(const e of enemies)if(s.life>0&&e.hp>0&&dist(s,e)<e.r+6){e.hp-=s.damage;e.flash=.12;spawnDamageNumber(e.x,e.y,Math.ceil(s.damage),s.color);s.life=0;burst(s.x,s.y,'#a6d8ff',5,80);}}echoShots=echoShots.filter(s=>s.life>0&&s.x>0&&s.x<W&&s.y>0&&s.y<H);}
 function updateEnemyBullets(dt) {
   for(const b of enemyBullets){
     if(b.homing){
@@ -1278,7 +1623,8 @@ function updateEnemyBullets(dt) {
       cur+=clamp(diff,-(b.turn||1.5)*dt,(b.turn||1.5)*dt);
       b.vx=Math.cos(cur)*sp;b.vy=Math.sin(cur)*sp;
     }
-    b.x+=b.vx*dt;b.y+=b.vy*dt;b.life-=dt;
+    const sp=shotSpeed();
+    b.x+=b.vx*sp*dt;b.y+=b.vy*sp*dt;b.life-=dt/shotLife();
     if(state.dashTime<=0&&dist(b,player)<b.r+player.r){hurt(b.damage||10);b.life=0;burst(player.x,player.y,'#ff6387',8,80);}
   }
   enemyBullets=enemyBullets.filter(b=>b.life>0&&(b.keep||(b.x>0&&b.x<RW&&b.y>0&&b.y<RH)));
@@ -1317,9 +1663,11 @@ function updateStars(dt) {
     if(k){s.x+=(player.x-s.x)*dt*k;s.y+=(player.y-s.y)*dt*k;}
     if(d<32){state.xp+=s.value;s.dead=true;sfx('pip');burst(s.x,s.y,'#ffe17a',7,130,{size:2.2,drag:5});}
   }
-  stars=stars.filter(s=>!s.dead);if(state.xp>=state.need&&state.hasDraw) levelUp();
+  stars=stars.filter(s=>!s.dead);
+  if(state.freeDraws>0&&state.hasDraw)levelUp(true);
+  else if(state.xp>=state.need&&state.hasDraw) levelUp();
 }
-function xpValue(spec){const difficultyBonus=state.difficulty==='impossible'?1.25:state.difficulty==='hard'?1.1:state.difficulty==='easy'?.95:1;const healthBonus=1+Math.max(0,spec.hp-1)*.03;const speedBonus=spec.speed>=60?1.08:1;return Math.max(1,Math.round(spec.xp*healthBonus*speedBonus*difficultyBonus*(state.charXp||1)));}
+function xpValue(spec){const difficultyBonus=state.difficulty==='impossible'?1.25:state.difficulty==='hard'?1.1:state.difficulty==='easy'?.95:1;const healthBonus=1+Math.max(0,spec.hp-1)*.03;const speedBonus=spec.speed>=60?1.08:1;return Math.max(1,Math.round(spec.xp*healthBonus*speedBonus*difficultyBonus*sectorXp()*(state.charXp||1)));}
 function deaths(){
   for(const e of enemies){
     if(e.shield){
@@ -1336,7 +1684,12 @@ function deaths(){
     burst(e.x,e.y,sp.color,e.boss?60:15,e.boss?340:190,{size:e.boss?3.6:2.8,drag:3});
     burst(e.x,e.y,'#ffffff',e.boss?18:5,e.boss?200:110,{size:2,drag:5});
     blasts.push({x:e.x,y:e.y,radius:e.boss?260:e.r*2.6,life:e.boss?.6:.26,maxLife:e.boss?.6:.26,color:sp.color});
-    if(e.boss){shake(24);hitStop(.16);sfx('boom');}else sfx('kill');
+    if(e.boss){
+      shake(24);hitStop(.16);sfx('boom');
+      // everything it put in the air goes with it, so the area cannot end in a
+      // long mop-up of a dead carrier's leftovers
+      for(const add of enemies)if(add.escortOf===e&&add.hp>0)add.hp=0;
+    }else sfx('kill');
   }
   enemies=alive;
 }
@@ -1356,24 +1709,68 @@ function finishRoom(){
   enemyBullets.length=0;strikes.length=0;rings.length=0;pulses.length=0;beams.length=0;   // the room is won; no dying to a stray shot afterwards
   state.vacuum=true;
   sfx('cleared');hitStop(.07);
-  toast('ROOM '+state.room+' CLEARED');
+  toast('AREA '+state.room+' CLEARED');
   blasts.push({x:player.x,y:player.y,radius:340,life:.65,maxLife:.65,color:'#9cf0bd'});       // and sweep up every remnant you earned
-  if(state.room%10===0&&!state.relicRooms[state.room]){showRelics();return;}
+  if(state.room%10===0&&state.room!==FINAL_ROOM&&!state.relicRooms[state.room]){showRelics();return;}
   openPortal();
 }
 // a short arm delay so a player standing on the spawn point isn't swallowed
 // instantly, and the remnant sweep has time to land
 function openPortal(){state.victoryPortal={x:RW/2,y:RH/2,r:34};state.portalArm=.7;}
 function nextRoom(){
-  if(state.room===IMPOSSIBLE_ROOM && !devMode){
-    localStorage.setItem('shapeshift_hard_beaten', 'true');   // key predates the room-50 rule
-    toast('IMPOSSIBLE UNLOCKED');
-  }
+  if(state.room>=FINAL_ROOM){runCleared();return;}   // there is no area 51 to fly to
   state.room++;player.x=RW/2;player.y=RH/2;player.vx=0;player.vy=0;state.history=[];beginRoom();
 }
+// the run ends here rather than rolling on: the sector is clear, so it is banked,
+// closed out, and you are asked what to fly next
+function runCleared(){
+  if(state.over)return;
+  state.over=true;
+  setInRun(false);
+  // the portal was mid-warp when this fired — put the camera back before the modal
+  state.victorySequence=null;state.warp=null;state.cameraZoom=1;state.cameraRot=0;
+  state.flash=0;state.screenAlpha=0;state.playerAlpha=1;state.victoryPortal=null;
+  recordRoom(state.room);
+  const earned=Math.max(0,runReward()-(state.paidCredits||0)), spEarned=skillOwed();
+  state.paidCredits=runReward();
+  state.paidSkill=skillReward(state.room,state.difficulty);
+  points+=earned;skill+=spEarned;saveProfile();saveTree();
+  clearRun();                      // a finished run is not one you continue
+  let note='';
+  if((state.difficulty===IMPOSSIBLE_KEY||state.difficulty==='impossible')&&!devMode){
+    const first=localStorage.getItem('shapeshift_hard_beaten')!=='true';
+    localStorage.setItem('shapeshift_hard_beaten','true');   // key predates the area-50 rule
+    if(first)note='<p class="payout-note">IMPOSSIBLE is now open on the difficulty screen.</p>';
+    // taking the sector to its end on HARD is what opens the next one along
+    const next=sectorDef(state.sector+1);
+    if(next&&!next.soon&&!sectorsOpen.has(next.id)){
+      sectorsOpen.add(next.id);saveProfile();
+      note+='<div class="sector-unlock"><span>SECTOR UNLOCKED</span><b>'+next.name+'</b><i>'+next.line+'</i></div>';
+    }
+  }
+  state.paused=true;
+  sfx('cleared');
+  const c=characters[state.character]||characters[STARTER], d=difficulties[state.difficulty];
+  show('<div class="modal"><div class="eyebrow">SECTOR CLEAR // '+d.label+'</div><h2>All areas cleared</h2>'
+    +'<p>All '+FINAL_ROOM+' areas flown and the MOTHERSHIP is down &mdash; flying <b style="color:'+c.color+'">'+c.name+'</b></p>'
+    +'<div class="payout"><span>CREDITS EARNED <b>+'+earned+'</b> <em>&times;'+creditRate(state.difficulty)+' '+d.label+'</em></span>'
+      +'<span>SKILL POINTS <b>+'+spEarned+'</b> <em>'+skillNote(state.difficulty)+'</em></span>'
+      +'<span>BALANCE <b>'+points+'</b> &middot; <b>'+skill+' SP</b></span>'
+      +'<span>RUN TIME <b>'+new Date(state.time*1000).toISOString().slice(14,19)+'</b></span></div>'
+    +note
+    +'<p class="payout-note">'+(state.difficulty==='impossible'
+      ?'Nothing in this sector flies higher. Spend what you earned, or take it again.'
+      :'Nothing left in this sector. Take it again on a harder setting, or spend what you earned.')+'</p>'
+    +'<button class="continue" id="clearDiff">CHANGE DIFFICULTY</button>'
+    +'<button class="continue ghost" id="clearRoster">HANGAR</button>'
+    +'<button class="continue ghost" id="clearHome">MAIN MENU</button></div>');
+  $('#clearDiff').onclick=()=>{sfx('ui');showStart();};
+  $('#clearRoster').onclick=()=>{sfx('ui');showRoster();};
+  $('#clearHome').onclick=()=>{sfx('ui');showHome();};
+}
 function weaponPower(){return Object.values(state.weapons).reduce((sum,w)=>sum+(w.damage||0),0);}
-function updateRelics(dt){if(state.echo){const ghost=state.history[Math.min(18,state.history.length-1)]||player;state.echo.x=ghost.x;state.echo.y=ghost.y;state.echo.fireIn-=dt;if(state.echo.fireIn<=0){const target=enemies.reduce((best,e)=>onScreen(e)&&(!best||dist(e,state.echo)<dist(best,state.echo))?e:best,null);if(target){const a=ang(state.echo,target);echoShots.push({x:state.echo.x,y:state.echo.y,vx:Math.cos(a)*495,vy:Math.sin(a)*495,life:1.5,damage:weaponPower()*.25});burst(state.echo.x,state.echo.y,'#a6d8ff',8,100);}state.echo.fireIn=.42;}}}
-function showRelics(){state.paused=true;state.relicOpen=true;show('<div class="modal"><div class="eyebrow">BOSS RELIC // ROOM '+state.room+'</div><h2>Choose a relic</h2><p>The exit will open after you claim one.</p><div class="cards"><div class="card"><span class="card-key">RELIC 01</span><h3>ECHO PHANTOM</h3><p>A ghost copies your movement and attacks for 25% of your combined weapon damage.</p><button data-relic="echo">CLAIM</button></div><div class="card"><span class="card-key">RELIC 02</span><h3>PHASE CLOAK</h3><p>Press E to disappear for 3 seconds. You can move freely and take no damage.</p><button data-relic="cloak">CLAIM</button></div><div class="card"><span class="card-key">RELIC 03</span><h3>CORE OVERDRIVE</h3><p>All current weapons fire 25% faster.</p><button data-relic="overdrive">CLAIM</button></div></div></div>');document.querySelectorAll('[data-relic]').forEach(b=>b.onclick=()=>claimRelic(b.dataset.relic));}
+function updateRelics(dt){if(state.echo){const ghost=state.history[Math.min(18,state.history.length-1)]||player;state.echo.x=ghost.x;state.echo.y=ghost.y;state.echo.fireIn-=dt;if(state.echo.fireIn<=0){const target=enemies.reduce((best,e)=>liveTarget(e)&&onScreen(e)&&(!best||dist(e,state.echo)<dist(best,state.echo))?e:best,null);if(target){const a=ang(state.echo,target);echoShots.push({x:state.echo.x,y:state.echo.y,vx:Math.cos(a)*495,vy:Math.sin(a)*495,life:1.5,damage:weaponPower()*.25});burst(state.echo.x,state.echo.y,'#a6d8ff',8,100);}state.echo.fireIn=.42;}}}
+function showRelics(){state.paused=true;state.relicOpen=true;show('<div class="modal"><div class="eyebrow">BOSS RELIC // AREA '+state.room+'</div><h2>Choose a relic</h2><p>The exit will open after you claim one.</p><div class="cards"><div class="card"><span class="card-key">RELIC 01</span><h3>ECHO PHANTOM</h3><p>A ghost copies your movement and attacks for 25% of your combined weapon damage.</p><button data-relic="echo">CLAIM</button></div><div class="card"><span class="card-key">RELIC 02</span><h3>PHASE CLOAK</h3><p>Press E to disappear for 3 seconds. You can move freely and take no damage.</p><button data-relic="cloak">CLAIM</button></div><div class="card"><span class="card-key">RELIC 03</span><h3>CORE OVERDRIVE</h3><p>All current weapons fire 25% faster.</p><button data-relic="overdrive">CLAIM</button></div></div></div>');document.querySelectorAll('[data-relic]').forEach(b=>b.onclick=()=>claimRelic(b.dataset.relic));}
 function claimRelic(id){if(id==='echo')state.echo={x:player.x,y:player.y,fireIn:0};if(id==='cloak')state.hasCloak=true;if(id==='overdrive')Object.values(state.weapons).forEach(w=>w.rate*=1.25);state.relicsTaken.push(id);state.relicRooms[state.room]=true;state.relicOpen=false;state.paused=false;hide();openPortal();}
 const weaponUpgrades={
   bow:[
@@ -1418,6 +1815,20 @@ const weaponUpgrades={
     ['sword-sharp','PLASMA HONE','Blade damage +4.'],
     ['sword-guard','KINETIC GUARD','Blade reduces contact damage by 30%.']
   ],
+  missile:[
+    ['missile-yield','WIDE WARHEAD','Blast radius +60.'],
+    ['missile-twin','TWIN RACK','A second warhead launches with every salvo.'],
+    ['missile-rate','RAPID LOADER','Reloads 45% faster.'],
+    ['missile-heavy','DENSE CORE','Warheads deal +7 damage.'],
+    ['missile-cluster','CLUSTER MUNITION','Each blast seeds three delayed sub-detonations around the crater.']
+  ],
+  phalanx:[
+    ['phalanx-force','KINETIC RAM','The wall shoves 70% harder.'],
+    ['phalanx-wide','BROAD FACE','The wall is 55% wider.'],
+    ['phalanx-power','CHARGED PLATE','The wall deals +4 damage.'],
+    ['phalanx-rate','FAST CYCLE','Launches 40% more often.'],
+    ['phalanx-return','RECALL FIELD','The wall returns to you, sweeping everything a second time.']
+  ],
   mine:[
     ['mine-radius','WIDE COLLAPSE','Pull and blast radius +70, and the well holds 4 more enemies at once.'],
     ['mine-power','DENSE CORE','Detonation damage +4.'],
@@ -1431,31 +1842,67 @@ const weaponUpgrades={
 // of its upgrades stays out of the level-up draw until it is bought here, so the first
 // runs are deliberately thin and every point spent widens the pool permanently.
 // Later tiers cost more, which is what keeps deep runs paying off rather than trivial.
-const WEAPON_TIER={bow:0,laser:1,bomb:1,sword:2,mine:2,aegis:3,arc:3};
+const WEAPON_TIER={bow:0,laser:1,sword:1,bomb:2,mine:2,aegis:3,arc:3,missile:3,phalanx:3};
+// the second sector's armaments: bought on the same curve, but the tree keeps
+// them out of sight until you have flown there
+const SECTOR2_WEAPONS=['missile','phalanx'];
 const TIER_WEAPON=[0,14,22,30], TIER_ULT=[45,70,95,120];
 // a weapon's five upgrades climb in price across the set rather than costing a flat
 // rate, so finishing a weapon is a real commitment and the cheap first pick stays
 // cheap. Position on the list sets the price; the tier multiplier scales the whole
 // curve, so tier 1 runs 6/8/10/14/20 and tier 3 runs 12/16/20/28/40.
 const UPGRADE_CURVE=[3,4,5,7,10], TIER_UPGRADE_MULT=[1,2,3,4];
+// anything you can take more than once gets dearer each time, scaled to what it
+// cost to begin with: a 6 SP node creeps up by 3, a 20 SP node by 6. Enough that
+// stacking one line has a price, not so much that the last rank is unreachable.
+const costStep=base=>Math.max(3,Math.round(base*.28));
 const upgradeCost=(tier,i)=>UPGRADE_CURVE[Math.min(i,UPGRADE_CURVE.length-1)]*TIER_UPGRADE_MULT[tier];
 const BOW_NAME='VULCAN CANNON', BOW_COLOR='#55e6ff';
 // per-rank costs; the length of the list is how many times a node can be taken
+// two stages per line. The first is cheap enough to take early and often; taking
+// every rank of it opens a second that moves the number far harder for far more,
+// so the tree keeps something worth saving for once the easy ranks run dry.
+// `reqMax` means "that node, fully taken" — an ordinary `req` only wants one rank.
 const PASSIVES={
-  power:{name:'OVERCHARGE',branch:'amp',costs:[15,32,66],req:['w:bow'],
+  power:{name:'OVERCHARGE',branch:'amp',cost:8,max:3,req:['w:bow'],
     desc:'Every weapon you carry deals 5% more damage, on top of anything else.'},
-  crit:{name:'CRITICAL SYSTEMS',branch:'amp',costs:[48],req:['power'],
+  powerII:{name:'OVERCHARGE II',branch:'amp',cost:20,max:3,req:['w:bow'],reqMax:['power'],
+    desc:'A second amplifier stage: +12% weapon damage a rank, once OVERCHARGE is fully taken.'},
+  crit:{name:'CRITICAL SYSTEMS',branch:'amp',cost:26,req:['power'],
     desc:'Direct hits can now critical: a 1% chance to land 1.3x damage. Both numbers can be raised.'},
-  critChance:{name:'TARGETING LATTICE',branch:'amp',costs:[14,22,34,52,78],req:['crit'],
+  critChance:{name:'TARGETING LATTICE',branch:'amp',cost:8,max:5,req:['crit'],
     desc:'Critical chance +2 percentage points.'},
-  critPower:{name:'FRACTURE ROUNDS',branch:'amp',costs:[20,34,56,88],req:['crit'],
+  critChanceII:{name:'TARGETING LATTICE II',branch:'amp',cost:20,max:3,req:['crit'],reqMax:['critChance'],
+    desc:'A finer lattice: +5 percentage points of critical chance a rank, once TARGETING LATTICE is fully taken.'},
+  critPower:{name:'FRACTURE ROUNDS',branch:'amp',cost:11,max:4,req:['crit'],
     desc:'Critical hits multiply for a further +0.2x.'},
-  dashDrive:{name:'DASH DRIVE',branch:'systems',costs:[12],req:['w:bow'],
+  critPowerII:{name:'FRACTURE ROUNDS II',branch:'amp',cost:20,max:3,req:['crit'],reqMax:['critPower'],
+    desc:'Deeper fracturing: +0.5x on every critical a rank, once FRACTURE ROUNDS is fully taken.'},
+  dashDrive:{name:'DASH DRIVE',branch:'systems',cost:12,req:['w:bow'],
     desc:'Unlocks the dash on SHIFT: a short burst of speed that also carries you straight through anything that would have hit you.'},
-  rate:{name:'CYCLE TUNING',branch:'rate',costs:[12,22,38,62],req:['w:bow'],
+  // two ranks that do different jobs, so the cost jumps rather than creeps: the
+  // first makes the dash worth aiming, the second turns it into a way out of a wall
+  dashStrike:{name:'SHEAR DRIVE',branch:'systems',cost:26,max:2,step:44,req:['dashDrive'],
+    desc:'Dashing shears anything you pass through for a little damage. Take it twice and the dash also shoulders them clear of your path — the second rank is the expensive one.'},
+  rate:{name:'CYCLE TUNING',branch:'rate',cost:7,max:4,req:['w:bow'],
     desc:'Every weapon fires 6% faster.'},
-  speed:{name:'THRUST VECTORING',branch:'speed',costs:[10,18,30,50],req:['w:bow'],
-    desc:'Your airframe moves 4% faster.'}
+  rateII:{name:'CYCLE TUNING II',branch:'rate',cost:20,max:3,req:['w:bow'],reqMax:['rate'],
+    desc:'Re-cut timing gear: +14% fire rate a rank, once CYCLE TUNING is fully taken.'},
+  speed:{name:'THRUST VECTORING',branch:'speed',cost:6,max:4,req:['w:bow'],
+    desc:'Your airframe moves 4% faster.'},
+  speedII:{name:'THRUST VECTORING II',branch:'speed',cost:20,max:3,req:['w:bow'],reqMax:['speed'],
+    desc:'Overhauled thrust: +9% airframe speed a rank, once THRUST VECTORING is fully taken.'},
+  // ---- third stages, opened by reaching the second sector --------------------
+  powerIII:{name:'OVERCHARGE III',branch:'amp2',cost:44,max:3,sector:2,req:['w:bow'],reqMax:['powerII'],
+    desc:'Drift-grade amplifiers: +22% weapon damage a rank.'},
+  critChanceIII:{name:'TARGETING LATTICE III',branch:'amp2',cost:44,max:3,sector:2,req:['crit'],reqMax:['critChanceII'],
+    desc:'Drift-grade optics: +9 percentage points of critical chance a rank.'},
+  critPowerIII:{name:'FRACTURE ROUNDS III',branch:'amp2',cost:44,max:3,sector:2,req:['crit'],reqMax:['critPowerII'],
+    desc:'Drift-grade payloads: +0.9x on every critical a rank.'},
+  rateIII:{name:'CYCLE TUNING III',branch:'amp2',cost:44,max:3,sector:2,req:['w:bow'],reqMax:['rateII'],
+    desc:'Drift-grade timing: +25% fire rate a rank.'},
+  headstart:{name:'FIELD REFIT',branch:'sys2',cost:38,max:3,sector:2,req:['w:bow'],
+    desc:'Launch with a refit already installed: one extra level-up choice at the start of every run, per rank.'}
 };
 // in-run system upgrades. `run` is the level-up card, `each` the pause-menu line,
 // `desc` the tree tooltip — one definition so the three can never disagree.
@@ -1467,32 +1914,45 @@ const GLOBALS={
   regen:{name:'NANITE REPAIR',cost:10,run:'Health regeneration +2 per second.',each:'Health regeneration +2/s each',
     desc:'Lets a level-up offer NANITE REPAIR: +2 health regenerated per second, every time you take it.'},
   dash:{name:'SLIPSTREAM COILS',cost:14,req:['dashDrive'],run:'Dash carries you 60% further. Offered once.',each:'Dash carries you 60% further',
-    desc:'Lets a level-up offer SLIPSTREAM COILS, which carries your dash 60% further. Offered once per run. Needs DASH DRIVE — there is nothing to extend without it.'}
+    desc:'Lets a level-up offer SLIPSTREAM COILS, which carries your dash 60% further. Offered once per run. Needs DASH DRIVE — there is nothing to extend without it.'},
+  // ---- SYSTEMS V2: the same three systems, rebuilt --------------------------
+  hull2:{name:'DRIFT PLATING',cost:34,sector:2,branch:'sys2',req:['g:health'],run:'Maximum health +55 and fully repairs.',each:'Maximum health +55 each',
+    desc:'Replaces the hull card with a heavier one: +55 maximum health and a full repair, every time you take it.'},
+  regen2:{name:'NANITE SURGE',cost:36,sector:2,branch:'sys2',req:['g:regen'],run:'Health regeneration +5 per second.',each:'Health regeneration +5/s each',
+    desc:'Replaces the repair card with a faster one: +5 health regenerated per second, every time you take it.'},
+  thrust2:{name:'KINETIC OVERDRIVE',cost:34,sector:2,branch:'sys2',req:['g:speed'],run:'Movement speed +30%.',each:'Movement speed +30% each',
+    desc:'Replaces the thruster card with a harder one: +30% movement speed, every time you take it.'}
 };
-const PASSIVE_STEP={power:'+5% damage',crit:'unlocks critical hits',critChance:'+2% chance',
-  critPower:'+0.2x multiplier',rate:'+6% fire rate',speed:'+4% speed'};
+const PASSIVE_STEP={power:'+5% damage',powerII:'+12% damage',powerIII:'+22% damage',
+  crit:'unlocks critical hits',critChance:'+2% chance',critChanceII:'+5% chance',critChanceIII:'+9% chance',
+  critPower:'+0.2x multiplier',critPowerII:'+0.5x multiplier',critPowerIII:'+0.9x multiplier',
+  rate:'+6% fire rate',rateII:'+14% fire rate',rateIII:'+25% fire rate',
+  speed:'+4% speed',speedII:'+9% speed',headstart:'+1 opening refit',
+  dashStrike:'rank 1 cuts, rank 2 shoves clear'};
 function buildTree(){
   const nodes=[];
-  for(const id of ['bow','laser','bomb','sword','mine','aegis','arc']){
-    const t=WEAPON_TIER[id], core=id==='bow';
+  for(const id of ['bow','laser','sword','bomb','mine','aegis','arc','missile','phalanx']){
+    const t=WEAPON_TIER[id], core=id==='bow', v2=SECTOR2_WEAPONS.includes(id);
+    const arm=core?'core':v2?'arms2':'arms';
     const wname=core?BOW_NAME:weaponData[id][0], wcol=core?BOW_COLOR:weaponData[id][1];
-    nodes.push({id:'w:'+id,name:wname,color:wcol,branch:core?'core':'arms',group:id,head:true,
-      costs:[exclusiveWeapons[id]?0:TIER_WEAPON[t]],req:core?[]:['w:bow'],
+    nodes.push({id:'w:'+id,name:wname,color:wcol,branch:arm,group:id,head:true,
+      cost:exclusiveWeapons[id]?0:TIER_WEAPON[t],req:core?[]:['w:bow'],sector:v2?2:undefined,
       grantedBy:exclusiveWeapons[id]||null,
       desc:core?'The cannon every run starts with. It costs nothing — take it and fly.'
         :exclusiveWeapons[id]?('Comes with '+characters[exclusiveWeapons[id]].name+' — you already have it. Its upgrades are bought below.')
         :('Adds '+wname+' to the level-up draw, so runs can offer it.')});
     weaponUpgrades[id].forEach((u,i)=>
-      nodes.push({id:'u:'+id+':'+u[0],name:u[1],color:wcol,branch:core?'core':'arms',group:id,
-        costs:[upgradeCost(t,i)],req:['w:'+id],desc:u[2]}));
-    nodes.push({id:'ult:'+id,name:ultimateData[id][0],color:'#ffe17a',branch:core?'core':'arms',group:id,ult:true,
-      costs:[TIER_ULT[t]],req:weaponUpgrades[id].map(u=>'u:'+id+':'+u[0]),desc:ultimateData[id][1]});
+      nodes.push({id:'u:'+id+':'+u[0],name:u[1],color:wcol,branch:arm,group:id,
+        cost:upgradeCost(t,i),req:['w:'+id],sector:v2?2:undefined,desc:u[2]}));
+    nodes.push({id:'ult:'+id,name:ultimateData[id][0],color:'#ffe17a',branch:arm,group:id,ult:true,
+      cost:TIER_ULT[t],req:weaponUpgrades[id].map(u=>'u:'+id+':'+u[0]),sector:v2?2:undefined,desc:ultimateData[id][1]});
   }
   for(const id of Object.keys(PASSIVES))nodes.push(Object.assign({id,group:'passive'},PASSIVES[id]));
   for(const id of Object.keys(GLOBALS))
-    nodes.push({id:'g:'+id,name:GLOBALS[id].name,color:'#9cf0bd',branch:'systems',group:'system',
-      costs:[GLOBALS[id].cost],req:GLOBALS[id].req||['w:bow'],desc:GLOBALS[id].desc});
-  for(const n of nodes)n.max=n.costs.length;
+    nodes.push({id:'g:'+id,name:GLOBALS[id].name,color:'#9cf0bd',branch:GLOBALS[id].branch||'systems',
+      group:GLOBALS[id].branch==='sys2'?'system2':'system',sector:GLOBALS[id].sector,
+      cost:GLOBALS[id].cost,req:GLOBALS[id].req||['w:bow'],desc:GLOBALS[id].desc});
+  for(const n of nodes){n.max=n.max||1;if(n.step===undefined)n.step=n.max>1?costStep(n.cost):0;}
   return nodes;
 }
 // DEFLECTOR SHIELD and ION ARC come with WARDEN and REVENANT rather than being
@@ -1501,11 +1961,18 @@ function buildTree(){
 const grantedBy=id=>id.indexOf('w:')===0?exclusiveWeapons[id.slice(2)]:null;
 const nodeGranted=id=>{const owner=grantedBy(id);return !!owner&&unlocked.has(owner);};
 // and the whole group stays off the tree until you have the pilot to fly it
-const nodeVisible=n=>{const owner=exclusiveWeapons[n.group];return !owner||unlocked.has(owner);};
+// a node can be hidden by needing a pilot you do not own, or a sector you have
+// not opened — in both cases the whole group stays off the tree until then
+const nodeVisible=n=>{const owner=exclusiveWeapons[n.group];
+  return (!owner||unlocked.has(owner))&&(!n.sector||sectorOpen(n.sector));};
 const treeRank=id=>nodeGranted(id)?1:(tree[id]||0);
 const treeHas=id=>treeRank(id)>0;
-const nodeCost=n=>n.costs[Math.min(treeRank(n.id),n.max-1)];
-const nodeReqMet=n=>n.req.every(r=>treeHas(r));
+// what the next rank costs: the base, plus one step for every rank already held
+const nodeCost=n=>n.cost+n.step*treeRank(n.id);
+const nextRankCost=n=>n.cost+n.step*(treeRank(n.id)+1);
+const nodeAtMax=id=>{const n=TREE_BY_ID[id];return !!n&&treeRank(id)>=n.max;};
+// `req` wants one rank; `reqMax` wants every rank, which is what opens a second stage
+const nodeReqMet=n=>n.req.every(r=>treeHas(r))&&(!n.reqMax||n.reqMax.every(nodeAtMax));
 const nodeMaxed=n=>treeRank(n.id)>=n.max;
 const nodeBuyable=n=>!nodeMaxed(n)&&nodeVisible(n)&&nodeReqMet(n)&&skill>=nodeCost(n);
 function saveTree(){
@@ -1521,30 +1988,55 @@ function buyNode(id){
   saveTree();
   return true;
 }
-// clearing this room is what opens IMPOSSIBLE, on any difficulty
-const IMPOSSIBLE_ROOM=50;
+// clearing this area on HARD is what opens IMPOSSIBLE. Easier settings can
+// still be played to 50 and beyond; they just do not count as the proof.
+const IMPOSSIBLE_ROOM=FINAL_ROOM;
+const IMPOSSIBLE_KEY='hard';
 // a run pays out a handful of points, weighted hard toward depth. IMPOSSIBLE pays
 // double, which is the only reason to take a setting that can end a run on contact.
-const SKILL_RATE={easy:1,medium:1,hard:1,impossible:2};
-const skillRate=d=>SKILL_RATE[d]||1;
+// EASY pays none at all: it is there to learn the game on, not to farm the tree from.
+const SKILL_RATE={easy:0,medium:1,hard:1,impossible:2};
+const skillRate=d=>SKILL_RATE[d]===undefined?1:SKILL_RATE[d];
+// what the payout line says under the skill figure
+const skillNote=d=>skillRate(d)===0?difficulties[d].label+' &mdash; NO SKILL':
+  'AREA '+state.room+(skillRate(d)!==1?' &times;'+skillRate(d):'');
 // round the room curve first, then multiply: rounding a doubled figure would pay
 // 13 where twice 6 is 12, and "double" has to mean exactly double
 const skillBase=room=>room<2?0:Math.max(1,Math.round(Math.pow(room,1.22)/2.6));
-const skillReward=(room,difficulty)=>skillBase(room)*skillRate(difficulty);
+const skillReward=(room,difficulty)=>Math.round(skillBase(room)*skillRate(difficulty)*sectorSkill());
 const skillOwed=()=>Math.max(0,skillReward(state.room,state.difficulty)-(state.paidSkill||0));
 // what the tree is worth to a run, read fresh at reset
-const treeDamage=()=>1+.05*treeRank('power');
-const treeRate=()=>1+.06*treeRank('rate');
-const treeSpeed=()=>1+.04*treeRank('speed');
-const treeCritChance=()=>treeHas('crit')?.01+.02*treeRank('critChance'):0;
-const treeCritMult=()=>1.3+.2*treeRank('critPower');
+const treeDamage=()=>1+.05*treeRank('power')+.12*treeRank('powerII')+.22*treeRank('powerIII');
+const treeRate=()=>1+.06*treeRank('rate')+.14*treeRank('rateII')+.25*treeRank('rateIII');
+const treeSpeed=()=>1+.04*treeRank('speed')+.09*treeRank('speedII');
+// the shear does a flat, deliberately small amount — it is a repositioning tool
+// that happens to hurt, not a weapon you can build a run around
+const DASH_SHEAR=15, DASH_SHOVE=1250;
+const treeDashShear=()=>treeRank('dashStrike')>0?DASH_SHEAR:0;
+const treeDashShove=()=>treeRank('dashStrike')>1;
+const treeCritChance=()=>treeHas('crit')?.01+.02*treeRank('critChance')+.05*treeRank('critChanceII')+.09*treeRank('critChanceIII'):0;
+const treeCritMult=()=>1.3+.2*treeRank('critPower')+.5*treeRank('critPowerII')+.9*treeRank('critPowerIII');
+// what the tree is worth right now, as the five numbers a run actually flies on
+const treeStats=()=>({damage:treeDamage(),rate:treeRate(),speed:treeSpeed(),
+  critChance:treeCritChance(),critMult:treeCritMult()});
+const STAT_LABEL={damage:'DAMAGE',rate:'FIRE RATE',speed:'SPEED',critChance:'CRIT CHANCE',critMult:'CRIT DAMAGE'};
+const STAT_ORDER=['damage','critMult','critChance','speed','rate'];
+// which of those five a node moves, so its card can show the before and after
+const NODE_STAT={power:'damage',powerII:'damage',powerIII:'damage',crit:'critChance',
+  critChance:'critChance',critChanceII:'critChance',critChanceIII:'critChance',
+  critPower:'critMult',critPowerII:'critMult',critPowerIII:'critMult',
+  rate:'rate',rateII:'rate',rateIII:'rate',speed:'speed',speedII:'speed'};
+const statText=(k,v)=>k==='critChance'?(v*100).toFixed(v>0&&v<.1?1:0)+'%':v.toFixed(2)+'\u00d7';
 // a crit rolls per discrete hit. Continuous damage — the blade's edge, the shield's
 // field, laser burn — is left alone so a crit always reads as one big number.
 function critHit(dmg){
   return (state&&state.critChance>0&&Math.random()<state.critChance)
     ? {dmg:dmg*state.critMult,crit:true} : {dmg,crit:false};
 }
-const weaponData={laser:['PHOTON LANCE','#c879ff',.55,5],bomb:['PLASMA TORPEDO','#ff965d',3,.4],sword:['ORBITAL BLADE','#ffe17a',4,1],aegis:['DEFLECTOR SHIELD','#7ee0ff',1.5,1],arc:['ION ARC','#c8a2ff',3,1.05],mine:['GRAVITY MINE','#9d6bff',4,.55]};
+const weaponData={laser:['PHOTON LANCE','#c879ff',.55,5],bomb:['PLASMA TORPEDO','#ff965d',3,.4],sword:['ORBITAL BLADE','#ffe17a',4,1],aegis:['DEFLECTOR SHIELD','#7ee0ff',1.5,1],arc:['ION ARC','#c8a2ff',3,1.05],mine:['GRAVITY MINE','#9d6bff',4,.55],
+  // SECTOR 02 hardware: one hits like nothing else and reloads like nothing else,
+  // the other barely scratches but clears the space around you outright
+  missile:['WARHEAD SALVO','#ff7a4d',11,.3],phalanx:['PHALANX WALL','#6ef0c4',14,.75]};
 // weapons only a specific character brings; never offered as a normal unlock
 const exclusiveWeapons={aegis:'warden',arc:'revenant'};
 const ultimateData={
@@ -1554,7 +2046,9 @@ const ultimateData={
   sword:['CELESTIAL BLADES','Four edges orbit you instead of one, and they spin up sharply whenever something comes close.'],
   aegis:['EVENT HORIZON','The field hauls enemies inward, then detonates before they can touch you — vaporising the weak and hurling the rest back out.'],
   arc:['STORM LATTICE','Every discharge also forks to the two enemies nearest you.'],
-  mine:['SINGULARITY COLLAPSE','The wreckage blinks back and collapses twice more, each blink dealing full damage to everything nearby.']
+  mine:['SINGULARITY COLLAPSE','The wreckage blinks back and collapses twice more, each blink dealing full damage to everything nearby.'],
+  missile:['SATURATION SALVO','Every launch becomes a volley of four that walk outward across the target.'],
+  phalanx:['BULWARK BREAKER','Two walls launch back to back in opposite directions, and everything they hit is left reeling.']
 };
 // built here rather than beside buildTree(): it reads weaponData, exclusiveWeapons
 // and ultimateData, all of which are declared above this point but below the builder
@@ -1567,7 +2061,7 @@ function availableWeaponChoices(){
     if(!w){
       if(exclusiveWeapons[id])continue;
       if(!treeHas('w:'+id))continue;                       // not bought in the tree, not in the draw
-      choices.push({id,kind:'unlock',name:weaponData[id][0],desc:id==='laser'?'Unlocks a steady auto-targeting beam lance.':id==='bomb'?'Unlocks area-damage plasma torpedoes.':id==='sword'?'Unlocks a rotating close-range orbital blade.':'Unlocks thrown mines that crush enemies together before detonating.'});
+      choices.push({id,kind:'unlock',name:weaponData[id][0],desc:id==='laser'?'Unlocks a steady auto-targeting beam lance.':id==='bomb'?'Unlocks area-damage plasma torpedoes.':id==='sword'?'Unlocks a rotating close-range orbital blade.':id==='missile'?'Unlocks slow-reloading warheads that fly to a target and level everything around it.':id==='phalanx'?'Unlocks a launched wall that shoves everything it meets backwards.':'Unlocks thrown mines that crush enemies together before detonating.'});
     }else if(w.taken.length<5){
       for(const u of weaponUpgrades[id])if(!w.taken.includes(u[0])&&treeHas('u:'+id+':'+u[0]))choices.push({id:u[0],kind:'weapon',weapon:id,name:u[1],desc:u[2]});
     }else if(!w.ultimate&&treeHas('ult:'+id)){
@@ -1590,30 +2084,35 @@ function globalChoices(){
 // stops tracking XP entirely and the bar comes off the HUD
 const hasDraw=()=>availableWeaponChoices().length>0||globalChoices().length>0;
 function shuffle(items){for(let i=items.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[items[i],items[j]]=[items[j],items[i]];}return items;}
-function levelUp(){
+function levelUp(free){
   if(state.paused||state.upgradeOpen)return;
   // work out the draw before spending anything: a level-up with no cards to show
   // would burn the XP for nothing
   const weaponChoices=availableWeaponChoices(), globals=globalChoices();
-  if(!weaponChoices.length&&!globals.length){state.hasDraw=false;return;}
-  state.xp-=state.need;state.need=Math.floor(state.need*1.25);state.level++;state.paused=true;state.upgradeOpen=true;
+  if(!weaponChoices.length&&!globals.length){state.hasDraw=false;if(free)state.freeDraws=0;return;}
+  if(free)state.freeDraws--;
+  else{state.xp-=state.need;state.need=Math.floor(state.need*1.25);state.level++;}
+  state.paused=true;state.upgradeOpen=true;
   sfx('level');burst(player.x,player.y,'#9cf0bd',36,320,{size:3,drag:2.4});blasts.push({x:player.x,y:player.y,radius:200,life:.5,maxLife:.5,color:'#9cf0bd'});
   // a ready ultimate always gets a slot, but never crowds out the whole draw
   const ults=shuffle(weaponChoices.filter(u=>u.kind==='ultimate')).slice(0,2);
   const rest=shuffle(weaponChoices.filter(u=>u.kind!=='ultimate').concat(globals));
   const choices=ults.concat(rest).slice(0,3);
-  show('<div class="modal"><div class="eyebrow">REFIT // LEVEL '+state.level+'</div><h2>Choose an upgrade</h2><p>Each card shows the exact change it will make.</p><div class="cards">'+choices.map((u,i)=>'<div class="card'+(u.kind==='ultimate'?' ultimate':'')+'"><span class="card-key">0'+(i+1)+' // '+(u.kind==='ultimate'?'ULTIMATE':u.kind==='unlock'?'NEW WEAPON':'UPGRADE')+'</span><h3>'+u.name+'</h3><p>'+u.desc+'</p><button data-up="'+u.id+'">INSTALL</button></div>').join('')+'</div></div>');
+  show('<div class="modal"><div class="eyebrow">'+(free?'FIELD REFIT // PRE-FLIGHT':'REFIT // LEVEL '+state.level)+'</div><h2>Choose an upgrade</h2><p>Each card shows the exact change it will make.</p><div class="cards">'+choices.map((u,i)=>'<div class="card'+(u.kind==='ultimate'?' ultimate':'')+'"><span class="card-key">0'+(i+1)+' // '+(u.kind==='ultimate'?'ULTIMATE':u.kind==='unlock'?'NEW WEAPON':'UPGRADE')+'</span><h3>'+u.name+'</h3><p>'+u.desc+'</p><button data-up="'+u.id+'">INSTALL</button></div>').join('')+'</div></div>');
   document.querySelectorAll('[data-up]').forEach(b=>b.onclick=()=>upgrade(b.dataset.up));
 }
 function upgrade(id){
   if(!state.upgradeOpen)return;
   state.upgradeOpen=false;
-  if(['health','speed','regen','dash'].includes(id)){
+  if(GLOBALS[id]){
     if(id==='dash'&&state.globals.dash){state.paused=false;hide();return;} // one-time only
     state.globals[id]=(state.globals[id]||0)+1;
     if(id==='health'){player.maxHp+=25;player.hp=player.maxHp;}
+    if(id==='hull2'){player.maxHp+=55;player.hp=player.maxHp;}
     if(id==='speed')player.speed*=1.18;
+    if(id==='thrust2')player.speed*=1.3;
     if(id==='regen')player.regen+=2;
+    if(id==='regen2')player.regen+=5;
     if(id==='dash'){sfx('pick');state.dashPower=1.6;state.dashCooldown=0;burst(player.x,player.y,pilotColor(),34,300,{size:3,drag:2.6});}
   }
   else if(weaponData[id]){state.weapons[id]=scaleWeapon(newWeapon(id));}
@@ -1632,7 +2131,7 @@ function upgrade(id){
   state.hasDraw=hasDraw();      // taking one can empty the pool
   state.paused=false;hide();
 }
-function applyWeaponUpgrade(weapon,id){const w=state.weapons[weapon];if(weapon==='bow'){if(id==='bow-split')w.shots=(w.shots||1)+1;if(id==='bow-pierce')w.pierce=(w.pierce||0)+1;if(id==='bow-heavy')w.damage+=2;if(id==='bow-draw')w.rate*=1.35;if(id==='bow-seeker'){w.projectileSpeed=(w.projectileSpeed||540)*1.4;w.homing=true;}}if(weapon==='laser'){if(id==='laser-focus')w.damage+=.5;if(id==='laser-pulse')w.rate*=1.35;if(id==='laser-reach')w.range=(w.range||640)+260;if(id==='laser-scorch')w.linger=1.2;if(id==='laser-prism')w.split=true;}if(weapon==='bomb'){if(id==='bomb-radius')w.radius=(w.radius||135)+40;if(id==='bomb-cluster')w.double=true;if(id==='bomb-fuse')w.rate*=1.35;if(id==='bomb-impact')w.damage+=2;if(id==='bomb-pull')w.pull=true;}if(weapon==='aegis'){if(id==='aegis-radius')w.radius=(w.radius||125)+46;if(id==='aegis-power')w.damage+=1.4;if(id==='aegis-drag')w.drag=.55;if(id==='aegis-pulse'){w.pulse=true;w.pulseIn=2.2;}if(id==='aegis-plating')w.plating=true;}if(weapon==='arc'){if(id==='arc-chain')w.chain=(w.chain||1)+1;if(id==='arc-power')w.damage+=2.2;if(id==='arc-rate')w.rate*=1.3;if(id==='arc-reach')w.reach=(w.reach||320)+130;if(id==='arc-overload')w.overload=true;}if(weapon==='sword'){if(id==='sword-reach')w.reach=(w.reach||78)+26;if(id==='sword-spin')w.spin=(w.spin||4)*1.5;if(id==='sword-span')w.reach=(w.reach||78)*1.35;if(id==='sword-sharp')w.damage+=4;if(id==='sword-guard')w.guard=true;}if(weapon==='mine'){if(id==='mine-radius'){w.radius=(w.radius||160)+70;w.cap=(w.cap||MINE_CAP)+4;}if(id==='mine-power')w.damage+=4;if(id==='mine-haste')w.rate*=1.35;if(id==='mine-multi')w.multi=true;if(id==='mine-crush')w.crush=true;}
+function applyWeaponUpgrade(weapon,id){const w=state.weapons[weapon];if(weapon==='bow'){if(id==='bow-split')w.shots=(w.shots||1)+1;if(id==='bow-pierce')w.pierce=(w.pierce||0)+1;if(id==='bow-heavy')w.damage+=2;if(id==='bow-draw')w.rate*=1.35;if(id==='bow-seeker'){w.projectileSpeed=(w.projectileSpeed||540)*1.4;w.homing=true;}}if(weapon==='laser'){if(id==='laser-focus')w.damage+=.5;if(id==='laser-pulse')w.rate*=1.35;if(id==='laser-reach')w.range=(w.range||640)+260;if(id==='laser-scorch')w.linger=1.2;if(id==='laser-prism')w.split=true;}if(weapon==='bomb'){if(id==='bomb-radius')w.radius=(w.radius||135)+40;if(id==='bomb-cluster')w.double=true;if(id==='bomb-fuse')w.rate*=1.35;if(id==='bomb-impact')w.damage+=2;if(id==='bomb-pull')w.pull=true;}if(weapon==='aegis'){if(id==='aegis-radius')w.radius=(w.radius||125)+46;if(id==='aegis-power')w.damage+=1.4;if(id==='aegis-drag')w.drag=.55;if(id==='aegis-pulse'){w.pulse=true;w.pulseIn=2.2;}if(id==='aegis-plating')w.plating=true;}if(weapon==='arc'){if(id==='arc-chain')w.chain=(w.chain||1)+1;if(id==='arc-power')w.damage+=2.2;if(id==='arc-rate')w.rate*=1.3;if(id==='arc-reach')w.reach=(w.reach||320)+130;if(id==='arc-overload')w.overload=true;}if(weapon==='sword'){if(id==='sword-reach')w.reach=(w.reach||78)+26;if(id==='sword-spin')w.spin=(w.spin||4)*1.5;if(id==='sword-span')w.reach=(w.reach||78)*1.35;if(id==='sword-sharp')w.damage+=4;if(id==='sword-guard')w.guard=true;}if(weapon==='missile'){if(id==='missile-yield')w.radius=(w.radius||150)+60;if(id==='missile-twin')w.twin=true;if(id==='missile-rate')w.rate*=1.45;if(id==='missile-heavy')w.damage+=7;if(id==='missile-cluster')w.cluster=true;}if(weapon==='phalanx'){if(id==='phalanx-force')w.push=(w.push||1)*1.7;if(id==='phalanx-wide')w.span=(w.span||200)*1.55;if(id==='phalanx-power')w.damage+=4;if(id==='phalanx-rate')w.rate*=1.4;if(id==='phalanx-return')w.recall=true;}if(weapon==='mine'){if(id==='mine-radius'){w.radius=(w.radius||160)+70;w.cap=(w.cap||MINE_CAP)+4;}if(id==='mine-power')w.damage+=4;if(id==='mine-haste')w.rate*=1.35;if(id==='mine-multi')w.multi=true;if(id==='mine-crush')w.crush=true;}
 }
 const globalInfo={};
 for(const id of Object.keys(GLOBALS))globalInfo[id]=[GLOBALS[id].name,GLOBALS[id].each];
@@ -1656,13 +2155,13 @@ function loadoutMarkup(){
   }).join('');
   const extras=Object.keys(globalInfo).filter(k=>state.globals[k]).map(k=>'<li class="on"><b>'+globalInfo[k][0]+(state.globals[k]>1?' &times;'+state.globals[k]:'')+'</b><span>'+globalInfo[k][1]+'</span></li>').join('')
     +state.relicsTaken.map(k=>'<li class="on relic"><b>'+relicInfo[k][0]+'</b><span>'+relicInfo[k][1]+'</span></li>').join('');
-  const stats='<div class="lo-stats"><span>ROOM <b>'+state.room+'</b></span><span>LEVEL <b>'+state.level+'</b></span><span>KILLS <b>'+state.kills+'</b></span><span>HULL <b>'+Math.ceil(player.hp)+'/'+player.maxHp+'</b></span><span>SPEED <b>'+Math.round(player.speed)+'</b></span><span>REGEN <b>'+player.regen.toFixed(0)+'/s</b></span></div>';
+  const stats='<div class="lo-stats"><span>AREA <b>'+state.room+'</b></span><span>LEVEL <b>'+state.level+'</b></span><span>KILLS <b>'+state.kills+'</b></span><span>HULL <b>'+Math.ceil(player.hp)+'/'+player.maxHp+'</b></span><span>SPEED <b>'+Math.round(player.speed)+'</b></span><span>REGEN <b>'+player.regen.toFixed(0)+'/s</b></span></div>';
   return '<div class="modal wide"><div class="eyebrow">SYSTEM PAUSED</div><h2>Loadout</h2>'+stats
     +'<div class="loadout">'+weapons+'</div>'
     +(extras?'<div class="lo-extras"><span class="lo-title">SYSTEMS &amp; RELICS</span><ul class="lo-list">'+extras+'</ul></div>':'')
     +(confirmingEnd
       ? '<div class="reset-row confirming"><span>'+(creditsOwed()?'Leave the run here and bank '+creditsOwed()+' credits?':'Leave the run here? Nothing new to bank yet.')+' The run is saved and you can continue it from the main menu.</span><button id="endNo">KEEP PLAYING</button><button id="endYes" class="danger">LEAVE RUN</button></div>'
-      : '<div class="reset-row"><span>'+(creditsOwed()?'LEAVING NOW BANKS <b>'+creditsOwed()+'</b> CREDITS':(state.room<CREDIT_MIN_ROOM?'NO CREDITS UNTIL ROOM <b>'+CREDIT_MIN_ROOM+'</b> &mdash; YOU ARE ON <b>'+state.room+'</b>':'NOTHING NEW TO BANK YET'))+'</span><button id="endRun">LEAVE RUN</button></div>')
+      : '<div class="reset-row"><span>'+(creditsOwed()?'LEAVING NOW BANKS <b>'+creditsOwed()+'</b> CREDITS':(state.room<CREDIT_MIN_ROOM?'NO CREDITS UNTIL AREA <b>'+CREDIT_MIN_ROOM+'</b> &mdash; YOU ARE ON <b>'+state.room+'</b>':'NOTHING NEW TO BANK YET'))+'</span><button id="endRun">LEAVE RUN</button></div>')
     +'<button class="continue" id="resume">RESUME</button></div>';
 }
 // pausing is allowed at the portal (the natural moment to review a build), but not
@@ -1681,7 +2180,7 @@ function bankAndPark(){
   const c=characters[state.character]||characters[STARTER];
   state.paused=true;
   show('<div class="modal"><div class="eyebrow">RUN PARKED</div><h2>Progress saved</h2>'
-    +'<p>Room '+state.room+' &bull; '+state.kills+' hostiles cleared &bull; flying '+c.name+'</p>'
+    +'<p>Area '+state.room+' &bull; '+state.kills+' hostiles cleared &bull; flying '+c.name+'</p>'
     +'<div class="payout"><span>CREDITS BANKED <b>+'+owed+'</b></span><span>SKILL POINTS <b>+'+spOwed+'</b></span><span>BALANCE <b>'+points+'</b> &middot; <b>'+skill+' SP</b></span></div>'
     +'<p class="payout-note">Continue from the main menu whenever you like. Further credits are only paid for new ground.</p>'
     +'<button class="continue" id="parkResume">BACK TO THE RUN</button>'
@@ -1693,7 +2192,7 @@ function bankAndPark(){
   $('#parkHome').onclick=showHome;
 }
 function pause(){
-  if(!state||state.victorySequence||state.upgradeOpen||state.relicOpen)return;
+  if(!state||state.over||state.victorySequence||state.upgradeOpen||state.relicOpen)return;
   state.paused=!state.paused;
   confirmingEnd=false;
   if(state.paused)openPauseMenu(); else hide();
@@ -1707,6 +2206,7 @@ function openPauseMenu(){
   if(yes)yes.onclick=()=>{confirmingEnd=false;bankAndPark();};
 }
 function gameOver(){
+  setInRun(false);
   if(state.over)return;
   state.over=true;
   clearRun();                      // a death cannot be continued
@@ -1718,9 +2218,9 @@ function gameOver(){
   const newlyAffordable=Object.keys(characters).filter(id=>!unlocked.has(id)&&points>=characters[id].cost&&points-earned<characters[id].cost);
   state.paused=true;
   show('<div class="modal"><div class="eyebrow">SIGNAL LOST</div><h2>Run terminated</h2>'
-    +'<p>Room '+state.room+' &bull; '+state.kills+' hostiles cleared &bull; flying '+c.name+'</p>'
-    +'<div class="payout"><span>CREDITS EARNED <b>+'+earned+'</b> <em>&times;'+creditRate(state.difficulty)+' '+difficulties[state.difficulty].label+'</em></span><span>SKILL POINTS <b>+'+spEarned+'</b> <em>ROOM '+state.room+(skillRate(state.difficulty)!==1?' &times;'+skillRate(state.difficulty):'')+'</em></span><span>BALANCE <b>'+points+'</b> &middot; <b>'+skill+' SP</b></span><span>BEST ROOM <b>'+highscore+'</b></span></div>'
-    +(earned?(newlyAffordable.length?'<p class="payout-note">You can now afford '+newlyAffordable.map(id=>characters[id].name).join(', ')+'.</p>':''):'<p class="payout-note warn">Runs only start paying once you get past room '+(CREDIT_MIN_ROOM-1)+'.</p>')
+    +'<p>Area '+state.room+' &bull; '+state.kills+' hostiles cleared &bull; flying '+c.name+'</p>'
+    +'<div class="payout"><span>CREDITS EARNED <b>+'+earned+'</b> <em>&times;'+creditRate(state.difficulty)+' '+difficulties[state.difficulty].label+'</em></span><span>SKILL POINTS <b>+'+spEarned+'</b> <em>'+skillNote(state.difficulty)+'</em></span><span>BALANCE <b>'+points+'</b> &middot; <b>'+skill+' SP</b></span><span>BEST AREA <b>'+highscore+'</b></span></div>'
+    +(earned?(newlyAffordable.length?'<p class="payout-note">You can now afford '+newlyAffordable.map(id=>characters[id].name).join(', ')+'.</p>':''):'<p class="payout-note warn">Runs only start paying once you get past area '+(CREDIT_MIN_ROOM-1)+'.</p>')
     +'<button class="continue" id="restart">REBOOT RUN</button>'
     +'<button class="continue ghost" id="toRoster">HANGAR</button>'
     +'<button class="continue ghost" id="toStart">MAIN MENU</button>'
@@ -1730,7 +2230,7 @@ function gameOver(){
   $('#toStart').onclick=showHome;
 }
 function show(markup){ui.overlay.innerHTML=markup;ui.overlay.classList.remove('hidden');}function hide(){ui.overlay.classList.add('hidden');ui.overlay.innerHTML='';}
-function hud(){ui.hp.style.width=player.hp/player.maxHp*100+'%';ui.hpText.textContent=Math.ceil(player.hp)+' / '+player.maxHp;if(ui.xpHud)ui.xpHud.style.display=state.hasDraw?'':'none';ui.xp.style.width=Math.min(100,state.xp/state.need*100)+'%';ui.xpText.textContent=Math.floor(state.xp)+' / '+state.need+' XP';ui.level.textContent='LV '+state.level;ui.kills.textContent=state.kills;paintBest();if(ui.arena)ui.arena.innerHTML='ROOM '+state.room+' <span>&bull;</span> BEST '+highscore;ui.timer.textContent=new Date(state.time*1000).toISOString().slice(14,19);ui.weapons.innerHTML=Object.values(state.weapons).map(w=>'<span class="weapon-item'+(w.ultimate?' ult':'')+'"><i class="weapon-dot" style="background:'+w.color+'"></i>'+w.name+' <small>'+(w.ultimate?'MAX':'★'+w.taken.length+(w.taken.length>=5?' ▲':''))+'</small></span>').join('');paintAbilities();}
+function hud(){ui.hp.style.width=player.hp/player.maxHp*100+'%';ui.hpText.textContent=Math.ceil(player.hp)+' / '+player.maxHp;if(ui.xpHud)ui.xpHud.style.display=state.hasDraw?'':'none';ui.xp.style.width=Math.min(100,state.xp/state.need*100)+'%';ui.xpText.textContent=Math.floor(state.xp)+' / '+state.need+' XP';ui.level.textContent='LV '+state.level;ui.kills.textContent=state.kills;paintBest();if(ui.arena)ui.arena.innerHTML='AREA '+state.room+' <span>&bull;</span> BEST '+highscore;ui.timer.textContent=new Date(state.time*1000).toISOString().slice(14,19);ui.weapons.innerHTML=Object.values(state.weapons).map(w=>'<span class="weapon-item'+(w.ultimate?' ult':'')+'"><i class="weapon-dot" style="background:'+w.color+'"></i>'+w.name+' <small>'+(w.ultimate?'MAX':'★'+w.taken.length+(w.taken.length>=5?' ▲':''))+'</small></span>').join('');paintAbilities();}
 function paintAbilities(){
   const dash=ui.dashRow, text=ui.dashText, phase=ui.phaseRow, ptext=ui.phaseText;
   if(dash&&text){
@@ -1765,11 +2265,11 @@ function drawDamageNumbers(){
   for(const d of damageNumbers){
     const k=clamp(d.life/.6,0,1);
     ctx.globalAlpha=Math.min(1,k*1.7);
-    ctx.font="bold "+((d.crit?22:15)+(1-k)*4).toFixed(1)+"px 'DM Mono', monospace";
+    ctx.font="bold "+((d.crit?30:15)+(1-k)*4).toFixed(1)+"px 'DM Mono', monospace";
     const label=d.crit?d.n+'!':d.n;
     ctx.fillStyle='rgba(6,10,19,.55)';ctx.fillText(label,d.x+1.5,d.y+1.5);
-    if(d.crit){ctx.shadowColor='#ffe17a';ctx.shadowBlur=12;}
-    ctx.fillStyle=d.crit?'#fff6c9':d.color;ctx.fillText(label,d.x,d.y);
+    if(d.crit){ctx.shadowColor='#ffb300';ctx.shadowBlur=16;}
+    ctx.fillStyle=d.crit?'#ffd400':d.color;ctx.fillText(label,d.x,d.y);
     ctx.shadowBlur=0;
   }
   ctx.restore();
@@ -1810,7 +2310,7 @@ function drawRoomBanner(){
     g.shadowBlur=0;g.globalAlpha=1;
   };
   g.letterSpacing='0.16em';
-  line('ROOM '+String(b.room).padStart(2,'0'),MAIN_Y,44,'#55e6ff',1,1);
+  line('AREA '+String(b.room).padStart(2,'0'),MAIN_Y,44,'#55e6ff',1,1);
   g.letterSpacing='0px';
   // a rule that opens outward under the number: the one bit of motion that says
   // a new room just latched
@@ -1945,7 +2445,7 @@ function draw(){
   }
   ctx.translate(-camX,-camY);
   drawBackground();
-  drawStrikes();drawBeams();drawStars();drawEnemies();drawBossArt();drawProjectiles();drawRings();drawMines();drawWells();drawPulses();drawBlasts();drawParticles();drawEcho();drawPortal();drawPlayer();drawWeaponEffects();drawDamageNumbers();
+  drawStrikes();drawBeams();drawStars();drawEnemies();drawBossArt();drawProjectiles();drawRockets();drawPhalanx();drawRings();drawMines();drawWells();drawPulses();drawBlasts();drawParticles();drawEcho();drawPortal();drawPlayer();drawWeaponEffects();drawDamageNumbers();
   ctx.restore();
   drawOffscreenMarkers();
   drawVignette();
@@ -2019,7 +2519,7 @@ function drawOffscreenMarkers(){
   if(state.active&&enemies.length&&enemies.length<=3&&state.left===0)
     for(const e of enemies)edgeMarker(e.x,e.y,types[e.type].color,9,null);
 }
-let starLayers=null,vignette=null;
+let starLayers=null,vignette=null,skySector=null;
 // three depth layers of starlight drifting slower than the world scrolls beneath them
 function makeStarLayer(n,rMin,rMax,color){
   return {color,stars:Array.from({length:n},()=>({x:Math.random()*RW,y:Math.random()*RH,r:rMin+Math.random()*(rMax-rMin),p:Math.random()*7,s:.15+Math.random()*.5}))};
@@ -2041,10 +2541,11 @@ let deckGrad=null;
 function drawDeck(){
   const L=DECK,T=DECK,R=RW-DECK,B=RH-DECK;
   if(!deckGrad){
+    const d=sector().sky.deck;
     deckGrad=ctx.createRadialGradient(RW/2,RH/2,120,RW/2,RH/2,RW*.62);
-    deckGrad.addColorStop(0,'rgba(24,42,76,.42)');
-    deckGrad.addColorStop(.55,'rgba(16,28,54,.24)');
-    deckGrad.addColorStop(1,'rgba(8,13,26,0)');
+    deckGrad.addColorStop(0,d[0]);
+    deckGrad.addColorStop(.55,d[1]);
+    deckGrad.addColorStop(1,d[2]);
   }
   ctx.save();
   ctx.fillStyle=deckGrad;ctx.fillRect(L,T,R-L,B-T);
@@ -2053,13 +2554,14 @@ function drawDeck(){
 // the wall reads as a lit containment edge rather than a hairline rectangle
 function drawWalls(){
   const L=DECK,T=DECK,R=RW-DECK,B=RH-DECK,fade=120,c=64;
+  const sky=sector().sky;
   ctx.save();
   ctx.globalCompositeOperation='lighter';
   // each band starts at its own wall and fades inward
   const band=(x,y,w,h,gx0,gy0,gx1,gy1)=>{
     const g=ctx.createLinearGradient(gx0,gy0,gx1,gy1);
-    g.addColorStop(0,'rgba(64,140,215,.08)');
-    g.addColorStop(1,'rgba(64,140,215,0)');
+    g.addColorStop(0,sky.band+'.08)');
+    g.addColorStop(1,sky.band+'0)');
     ctx.fillStyle=g;ctx.fillRect(x,y,w,h);
   };
   band(L,T,R-L,fade, L,T, L,T+fade);
@@ -2068,10 +2570,10 @@ function drawWalls(){
   band(R-fade,T,fade,B-T, R,T, R-fade,T);
   ctx.restore();
   ctx.save();
-  ctx.strokeStyle='#2a3d59';ctx.lineWidth=1;
+  ctx.strokeStyle=sky.rim;ctx.lineWidth=1;
   ctx.strokeRect(L,T,R-L,B-T);
-  ctx.strokeStyle='#55e6ff';ctx.lineWidth=2.5;ctx.globalAlpha=.55;
-  ctx.shadowColor='#55e6ff';ctx.shadowBlur=10;
+  ctx.strokeStyle=sky.edge;ctx.lineWidth=2.5;ctx.globalAlpha=.55;
+  ctx.shadowColor=sky.edge;ctx.shadowBlur=10;
   ctx.beginPath();
   ctx.moveTo(L,T+c);ctx.lineTo(L,T);ctx.lineTo(L+c,T);
   ctx.moveTo(R-c,T);ctx.lineTo(R,T);ctx.lineTo(R,T+c);
@@ -2080,19 +2582,44 @@ function drawWalls(){
   ctx.stroke();
   ctx.restore();
 }
+// the palette is cached per sector: rebuilding a 300-star field every frame is
+// wasted work, but it has to be thrown away the moment the sector changes
+function skyFor(){
+  const sec=sector();
+  if(skySector!==sec.id){
+    skySector=sec.id;
+    starLayers=[makeStarLayer(160,.5,1,sec.sky.stars[0]),
+                makeStarLayer(100,.8,1.6,sec.sky.stars[1]),
+                makeStarLayer(sec.id===1?55:74,1.2,2.3,sec.sky.stars[2])];
+    deckGrad=null;
+  }
+  return sec;
+}
 function drawBackground(){
-  if(!starLayers)starLayers=[
-    makeStarLayer(160,.5,1,'#38507a'),
-    makeStarLayer(100,.8,1.6,'#7f9bd6'),
-    makeStarLayer(55,1.2,2.3,'#eef4ff'),
-  ];
+  const sec=skyFor();
   ctx.globalAlpha=1;
   drawStarLayer(starLayers[0],.1);
   drawStarLayer(starLayers[1],.28);
   drawStarLayer(starLayers[2],.52);
   ctx.globalAlpha=1;
+  if(sec.sky.haze)drawHaze(sec);
   drawDeck();
   drawWalls();
+}
+// CRIMSON DRIFT is not empty space: burning bands drift across the lane, slow
+// enough to read as scenery and never bright enough to hide a shape
+function drawHaze(sec){
+  ctx.save();
+  ctx.globalCompositeOperation='lighter';
+  for(let i=0;i<4;i++){
+    const drift=(state.time*(9+i*4)+i*760)%(RW+900)-450;
+    const y=RH*(.16+i*.23)+Math.sin(state.time*.16+i)*70;
+    const g=ctx.createRadialGradient(drift,y,0,drift,y,430);
+    g.addColorStop(0,rgba(sec.sky.haze,.085));
+    g.addColorStop(1,rgba(sec.sky.haze,0));
+    ctx.fillStyle=g;ctx.fillRect(drift-430,y-430,860,860);
+  }
+  ctx.restore();
 }
 const LOW_HP=.35;   // the border starts creeping in below this share of hull
 // a red frame that breathes faster the closer you are to dying, and drains
@@ -2251,6 +2778,14 @@ function drawEnemies(){
     ctx.beginPath();ctx.ellipse(e.r*.35,0,e.r*.22,e.r*.14,0,0,7);ctx.fill();
     ctx.fillStyle='#ffffff';ctx.globalAlpha=grow*(.55+Math.sin(state.time*18+(e.phase||0))*.2);
     for(const s of [-1,1]){ctx.beginPath();ctx.arc(-e.r*.9,s*e.r*.32,e.r*.09,0,7);ctx.fill();}
+    if(sp.ring){
+      // the marking that says what pattern this hull was built on
+      ctx.save();
+      ctx.globalAlpha=grow*.5;ctx.strokeStyle='#ffffff';ctx.lineWidth=1.4;
+      ctx.setLineDash([5,4]);ctx.rotate(-(e.rot||0)+state.time*1.1);
+      ctx.beginPath();ctx.arc(0,0,e.r*.62,0,7);ctx.stroke();
+      ctx.setLineDash([]);ctx.restore();
+    }
     if(e.laserLinger>0){
       ctx.save();ctx.globalCompositeOperation='lighter';
       ctx.globalAlpha=grow*.45*clamp(e.laserLinger/1.2,0,1)*(.7+Math.sin(state.time*17)*.3);
@@ -2407,6 +2942,31 @@ function drawBossArt(){
         ctx.beginPath();ctx.moveTo(e.x,e.y);ctx.lineTo(e.x+Math.cos(ba)*reach,e.y+Math.sin(ba)*reach);ctx.stroke();
         ctx.strokeStyle=rgba('#ffffff',.6);ctx.lineWidth=2;
         ctx.beginPath();ctx.moveTo(e.x,e.y);ctx.lineTo(e.x+Math.cos(ba)*reach,e.y+Math.sin(ba)*reach);ctx.stroke();
+      }
+    }
+    if(e.bossId==='mothership'){
+      ctx.globalAlpha=.45+Math.sin(state.time*2)*.12;
+      ctx.strokeStyle=spec.color;ctx.lineWidth=3;
+      ctx.beginPath();ctx.arc(e.x,e.y,e.r+16,0,7);ctx.stroke();
+      // three bays that light as they cycle
+      for(let i=0;i<3;i++){
+        const ba=state.time*.6+i*Math.PI*2/3;
+        ctx.globalAlpha=.3+(e.bayFlash||0)*1.8;
+        ctx.fillStyle=spec.color;
+        ctx.beginPath();ctx.arc(e.x+Math.cos(ba)*(e.r+6),e.y+Math.sin(ba)*(e.r+6),9+(e.bayFlash||0)*16,0,7);ctx.fill();
+      }
+      if(e.gunFlash){
+        const ga=ang(e,player);
+        ctx.globalAlpha=e.gunFlash*2.4;
+        ctx.strokeStyle='#ffd9a8';ctx.lineWidth=5;
+        ctx.beginPath();ctx.moveTo(e.x+Math.cos(ga)*e.r,e.y+Math.sin(ga)*e.r);
+        ctx.lineTo(e.x+Math.cos(ga)*(e.r+50),e.y+Math.sin(ga)*(e.r+50));ctx.stroke();
+      }
+      // a thread to everything it launched, so the source of the swarm is obvious
+      for(const add of enemies){
+        if(add.escortOf!==e)continue;
+        ctx.globalAlpha=.14;ctx.strokeStyle=spec.color;ctx.lineWidth=1.4;
+        ctx.beginPath();ctx.moveTo(e.x,e.y);ctx.lineTo(add.x,add.y);ctx.stroke();
       }
     }
     if(e.bossId==='hollow'&&e.shield){
@@ -2741,7 +3301,7 @@ function drawLaser(w){
 function ultimateEffects(dt){
   if(state.victorySequence||state.intermission)return; // no ultimates mid-transition
   for(const [id,w] of Object.entries(state.weapons)){
-    if(!w.ultimate||id==='bow'||id==='sword'||id==='mine')continue; // bow, sword and mine ultimates are passive
+    if(!w.ultimate||id==='bow'||id==='sword'||id==='mine'||id==='missile'||id==='phalanx')continue; // these ultimates ride the weapon's own firing block
     w.ultimateIn=(w.ultimateIn||0)-dt;
     if(w.ultimateIn>0)continue;
     if(id==='laser'){
@@ -2937,7 +3497,7 @@ const demos=[
       g.fillText((Math.floor(t/1.0)%6)>=5?'ULTIMATE READY':'5 UPGRADES = ULTIMATE',118,110);
       g.restore();
     }},
-  { title:'CLEAR THE ROOM, TAKE THE PORTAL', period:4.5,
+  { title:'CLEAR THE AREA, TAKE THE PORTAL', period:4.5,
     text:'Kill everything, then step into the portal at the centre to descend. Rooms get harder as you go.',
     draw(g,t){
       demoBg(g);
@@ -2967,13 +3527,13 @@ const demos=[
       g.save();
       g.font="bold 11px 'DM Mono', monospace";g.textAlign='center';g.textBaseline='middle';
       if(t>3.5){g.globalAlpha=Math.min(1,(t-3.5)*3);
-        g.fillStyle='#ff557d';g.fillText('ROOM 2',135+2,116);
-        g.fillStyle='#55e6ff';g.fillText('ROOM 2',135-2,116);
-        g.fillStyle='#eff4ff';g.fillText('ROOM 2',135,116);}
-      else {g.fillStyle='#5d6c85';g.fillText('ROOM CLEARED',135,116);}
+        g.fillStyle='#ff557d';g.fillText('AREA 2',135+2,116);
+        g.fillStyle='#55e6ff';g.fillText('AREA 2',135-2,116);
+        g.fillStyle='#eff4ff';g.fillText('AREA 2',135,116);}
+      else {g.fillStyle='#5d6c85';g.fillText('AREA CLEARED',135,116);}
       g.restore();
     }},
-  { title:'BOSSES EVERY TEN ROOMS', period:4,
+  { title:'BOSSES EVERY TEN AREAS', period:4,
     text:'Rooms 10, 20, 30… each hold a different boss with its own attack pattern. Beat one and you claim a permanent relic.',
     draw(g,t){
       demoBg(g);
@@ -3002,6 +3562,7 @@ const demos=[
     }}
 ];
 function showHowTo(){
+  setInRun(false);
   tutorial.open=true;tutorial.t=0;tutorial.last=0;
   const cards=demos.map((d,i)=>'<div class="how-card"><canvas id="demo'+i+'" width="'+DEMO_W*2+'" height="'+DEMO_H*2+'"></canvas>'
     +'<b>'+d.title+'</b><p>'+d.text+'</p></div>').join('');
@@ -3030,16 +3591,18 @@ function drawTutorial(dt){
 }
 let confirmingReset=false, confirmingNew=false;
 function showHome(){
+  setInRun(false);
   closeHowTo();
   confirmingReset=false;
   const c=characters[chosen]||characters[STARTER];
   show('<button class="dev-toggle'+(devMode?' on':'')+'" id="devBtn" title="Developer mode">'+(devMode?'DEV MODE ON':'DEV')+'</button>'
     +'<div class="modal home">'
-    +'<div class="eyebrow">SHAPESHIFT</div>'
+    +'<div class="eyebrow">STARWING</div>'
     +'<h1 class="home-title">NEON SURVIVORS</h1>'
-    +'<p>Descend through the rooms. Everything in here wants your hull.</p>'
-    +'<div class="home-stats"><span>BEST ROOM <b>'+highscore+'</b></span><span>CREDITS <b>'+points+'</b></span><span>SKILL <b'+(devMode?' class="dev"':'')+'>'+(devMode?'DEV':skill)+'</b></span><span>AIRCRAFT <b style="color:'+c.color+'">'+c.name+'</b></span></div>'
-    +(savedRun?'<div class="home-run"><span>RUN IN PROGRESS</span><b>ROOM '+savedRun.room+'</b><i>'+((characters[savedRun.character]||characters[STARTER]).name)+' &bull; '+difficulties[savedRun.difficulty].label+'</i></div>':'')
+    +'<p>Fly the sector end to end. Everything in it wants your hull.</p>'
+    +'<div class="home-stats"><span>BEST AREA <b>'+highscore+'</b></span><span>CREDITS <b>'+points+'</b></span><span>SKILL <b'+(devMode?' class="dev"':'')+'>'+(devMode?'DEV':skill)+'</b></span><span>AIRCRAFT <b style="color:'+c.color+'">'+c.name+'</b></span>'
+      +(sectorsOpen.size>1?'<span>SECTOR <b style="color:'+sectorDef(chosenSector).color+'">'+sectorDef(chosenSector).name+'</b></span>':'')+'</div>'
+    +(savedRun?'<div class="home-run"><span>RUN IN PROGRESS</span><b>AREA '+savedRun.room+'</b><i>'+((characters[savedRun.character]||characters[STARTER]).name)+' &bull; '+difficulties[savedRun.difficulty].label+'</i></div>':'')
     +'<div class="home-actions">'
       +(savedRun
         ? '<button class="continue big" id="homeContinue">CONTINUE RUN</button>'
@@ -3057,7 +3620,8 @@ function showHome(){
     if(savedRun&&!confirmingNew){confirmingNew=true;showHome();return;}
     confirmingNew=false;
     if(savedRun)clearRun();
-    showStart();
+    // with more than one sector open, which one you are flying is the first choice
+    if(sectorsOpen.size>1)showSectors(); else showStart();
   };
   if(savedRun)$('#homeContinue').onclick=()=>{confirmingNew=false;resumeRun();};
   $('#homeHow').onclick=()=>{sfx('ui');showHowTo();};
@@ -3065,6 +3629,7 @@ function showHome(){
 }
 const affordableCount=()=>Object.keys(characters).filter(id=>!unlocked.has(id)&&points>=characters[id].cost).length;
 function showRoster(){
+  setInRun(false);
   closeHowTo();
   const cards=Object.keys(characters).map(id=>{
     const c=characters[id], have=unlocked.has(id), active=chosen===id, can=points>=c.cost;
@@ -3081,7 +3646,7 @@ function showRoster(){
     +'<div class="eyebrow">HANGAR</div><h2>Aircraft</h2>'
     +'<p>Credits are earned by finishing runs. Deeper rooms and harder settings pay more.</p>'
     +'<div class="lo-stats"><span>CREDITS <b>'+points+'</b></span><span>UNLOCKED <b>'+unlocked.size+' / '+Object.keys(characters).length+'</b></span></div>'
-    +(savedRun?'<p class="pilot-lock">A run is in progress on room '+savedRun.room+'. It keeps flying '+((characters[savedRun.character]||characters[STARTER]).name)+' &mdash; finish or restart it to change aircraft.</p>':'')
+    +(savedRun?'<p class="pilot-lock">A run is in progress in area '+savedRun.room+'. It keeps flying '+((characters[savedRun.character]||characters[STARTER]).name)+' &mdash; finish or restart it to change aircraft.</p>':'')
     +'<div class="pilots">'+cards+'</div>'
     +'<button class="continue ghost" id="rosterBack">BACK</button>'
   +'</div>');
@@ -3116,21 +3681,73 @@ function resetSavedData(){
   highscore=1;points=0;skill=0;tree={};unlocked=new Set([STARTER]);chosen=STARTER;
   paintBest();
 }
+// cycled with the arrow keys or the chevrons either side. Locked entries stay on
+// the reel rather than being hidden: what is next is part of the reward.
+let sectorPick=1;
+function showSectors(){
+  setInRun(false);
+  sectorPick=SECTORS.findIndex(x=>x.id===chosenSector);
+  if(sectorPick<0)sectorPick=0;
+  paintSectors();
+}
+function paintSectors(){
+  const sec=SECTORS[sectorPick], open=!sec.soon&&sectorOpen(sec.id);
+  const dots=SECTORS.map((x,i)=>'<i class="'+(i===sectorPick?'on':'')+(!x.soon&&sectorOpen(x.id)?'':' locked')+'"></i>').join('');
+  show('<div class="modal sector-modal">'
+    +'<div class="eyebrow">CHOOSE A SECTOR</div>'
+    +'<div class="sector-reel">'
+      +'<button class="sector-arrow" id="secPrev" aria-label="Previous sector">&#10094;</button>'
+      +'<div class="sector-card'+(open?'':' locked')+'" style="--sc:'+(sec.color||'#5d6c85')+'">'
+        +'<span class="sector-tag">'+sec.short+'</span>'
+        +'<h2>'+(open?sec.name:sec.soon?'SECTOR 03':'LOCKED')+'</h2>'
+        +'<p>'+sec.blurb+'</p>'
+        +'<p class="sector-line">'+sec.line+'</p>'
+        +(open?'<div class="sector-stats"><span>HULLS <b>&times;'+sec.hpBase.toFixed(2)+'</b></span>'
+              +'<span>CURVE <b>+'+Math.round(sec.hpCurve*1000)/10+'%/area</b></span>'
+              +'<span>NUMBERS <b>&times;'+sec.wave+'</b></span>'
+              +'<span>BOSSES <b>&times;'+sec.bossHp+'</b></span></div>'
+          :'<div class="sector-locked">'+(sec.soon
+              ?'Not flyable yet.'
+              :'Clear area '+FINAL_ROOM+' of '+sectorDef(sec.id-1).name+' on HARD.')+'</div>')
+      +'</div>'
+      +'<button class="sector-arrow" id="secNext" aria-label="Next sector">&#10095;</button>'
+    +'</div>'
+    +'<div class="sector-dots">'+dots+'</div>'
+    +'<p class="sector-hint">&#9664; &#9654; or the chevrons to cycle</p>'
+    +'<button class="continue"'+(open?'':' disabled')+' id="secGo">'+(open?'FLY '+sec.name:'LOCKED')+'</button>'
+    +'<button class="continue ghost" id="secBack">BACK</button>'
+  +'</div>');
+  paintBrand();
+  $('#secPrev').onclick=()=>{sfx('ui');cycleSector(-1);};
+  $('#secNext').onclick=()=>{sfx('ui');cycleSector(1);};
+  $('#secBack').onclick=()=>{sfx('ui');showHome();};
+  const go=$('#secGo');
+  if(go&&open)go.onclick=()=>{sfx('pick');chosenSector=sec.id;saveProfile();showStart();};
+}
+function cycleSector(dir){
+  sectorPick=(sectorPick+dir+SECTORS.length)%SECTORS.length;
+  const sec=SECTORS[sectorPick];
+  // the arena is visible behind the modal, so the reel previews the sky too
+  if(!sec.soon&&sectorOpen(sec.id)&&!inRun)chosenSector=sec.id;
+  paintSectors();
+}
+const sectorScreenOpen=()=>!!$('#secGo');
 function showStart(){
+  setInRun(false);
   closeHowTo();
   const pilot=characters[chosen]||characters[STARTER];
   const hardStored = localStorage.getItem('shapeshift_hard_beaten') === 'true';
   const hardAvailable = hardStored || devMode;
   const resetRow = confirmingReset
     ? '<div class="reset-row confirming"><span>Erase your best room, '+points+' credits and '+unlocked.size+' unlocked pilot'+(unlocked.size===1?'':'s')+(hardStored?', and re-lock IMPOSSIBLE':'')+'? This cannot be undone.</span><button id="resetNo">CANCEL</button><button id="resetYes" class="danger">ERASE</button></div>'
-    : '<div class="reset-row"><span>BEST ROOM <b>'+highscore+'</b> <i>&bull;</i> '+points+' CREDITS'+(hardStored?' <i>&bull;</i> IMPOSSIBLE UNLOCKED':devMode?' <i>&bull;</i> IMPOSSIBLE VIA DEV':'')+'</span><button id="resetData">RESET DATA</button></div>';
-  show('<div class="modal"><div class="eyebrow">SHAPESHIFT // NEON SURVIVORS</div><h2>Choose your difficulty</h2><p>Flying as <b style="color:PILOTCOLOR">PILOTNAME</b> &middot; WASD or arrows to move'+(treeHas('dashDrive')?', SHIFT to dash':'')+(pilot.shock?', Q for a shockwave':'')+'. Your cannon fires itself.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>14% less enemy health, 12% slower, 15% softer hits, and a thinner crowd.</p><p class="pay">CREDITS &times;0.7</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Baseline health, speed, damage and numbers. The intended run.</p><p class="pay">CREDITS &times;1</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>+28% health, +20% speed, +35% damage, +22% more enemies and a nastier mix of them.</p><p class="pay">CREDITS &times;1.75</p><button data-difficulty="hard">START HARD</button></div>' + (!hardAvailable ? '<div class="card card-locked"><span class="card-key">04 // LOCKED</span><h3>IMPOSSIBLE</h3><p>Clear room '+IMPOSSIBLE_ROOM+' on any difficulty to unlock. It pays double skill points.</p><p class="pay">BEST ROOM '+highscore+' / '+IMPOSSIBLE_ROOM+'</p></div>' : '')
-    + (hardAvailable ? '<div class="card" style="border-color:#ff0000; box-shadow: 0 0 15px #ff000044;"><span class="card-key" style="color:#ff4f9a">04 // '+(hardStored?'ELITE':'DEV')+'</span><h3 style="color:#ff4f9a">IMPOSSIBLE</h3><p>Triple health, +80% speed, double damage, half again as many enemies &mdash; and touching a boss kills you outright.</p><p class="pay hot">CREDITS &times;3 &middot; SKILL &times;2</p><button data-difficulty="impossible" style="background:#ff4f9a">START IMPOSSIBLE</button></div>' : '') + '</div>' + resetRow + '<button class="continue ghost" id="startBack">BACK</button></div>');
+    : '<div class="reset-row"><span>BEST AREA <b>'+highscore+'</b> <i>&bull;</i> '+points+' CREDITS'+(hardStored?' <i>&bull;</i> IMPOSSIBLE UNLOCKED':devMode?' <i>&bull;</i> IMPOSSIBLE VIA DEV':'')+'</span><button id="resetData">RESET DATA</button></div>';
+  show('<div class="modal"><div class="eyebrow">STARWING // '+sectorDef(chosenSector).name+'</div><h2>Choose your difficulty</h2><p>Flying as <b style="color:PILOTCOLOR">PILOTNAME</b> &middot; WASD or arrows to move'+(treeHas('dashDrive')?', SHIFT to dash':'')+(pilot.shock?', Q for a shockwave':'')+'. Your cannon fires itself.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>14% less enemy health, 12% slower, 15% softer hits, a thinner crowd, and slower enemy fire that fades sooner.</p><p class="pay">CREDITS &times;0.7 &middot; NO SKILL POINTS</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Baseline health, speed, damage and numbers. The intended run.</p><p class="pay">CREDITS &times;1</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>+28% health, +20% speed, +35% damage, +22% more enemies, a nastier mix &mdash; and enemy fire that flies 25% faster and hangs about 30% longer.</p><p class="pay">CREDITS &times;1.75</p><button data-difficulty="hard">START HARD</button></div>' + (!hardAvailable ? '<div class="card card-locked"><span class="card-key">04 // LOCKED</span><h3>IMPOSSIBLE</h3><p>Clear area '+IMPOSSIBLE_ROOM+' on HARD to unlock. Easier settings do not count, however far you get. It pays double skill points.</p><p class="pay">BEST AREA '+highscore+' / '+IMPOSSIBLE_ROOM+' &middot; HARD ONLY</p></div>' : '')
+    + (hardAvailable ? '<div class="card" style="border-color:#ff0000; box-shadow: 0 0 15px #ff000044;"><span class="card-key" style="color:#ff4f9a">04 // '+(hardStored?'ELITE':'DEV')+'</span><h3 style="color:#ff4f9a">IMPOSSIBLE</h3><p>Triple health, +80% speed, double damage, half again as many enemies, enemy fire 50% faster and lasting 60% longer &mdash; and touching a boss kills you outright.</p><p class="pay hot">CREDITS &times;3 &middot; SKILL &times;2</p><button data-difficulty="impossible" style="background:#ff4f9a">START IMPOSSIBLE</button></div>' : '') + '</div>' + resetRow + '<button class="continue ghost" id="startBack">BACK</button></div>');
   ui.overlay.innerHTML=ui.overlay.innerHTML.replace('PILOTCOLOR',pilot.color).replace('PILOTNAME',pilot.name);
   document.querySelectorAll('[data-difficulty]').forEach(b=>b.onclick=()=>{
     if(!treeHas('w:bow')){showTree();return;}      // no weapon, no run
     confirmingReset=false;clearRun();reset(b.dataset.difficulty);});
-  $('#startBack').onclick=showHome;
+  $('#startBack').onclick=()=>{sfx('ui');if(sectorsOpen.size>1)showSectors();else showHome();};
   const ask=$('#resetData'),no=$('#resetNo'),yes=$('#resetYes');
   if(ask)ask.onclick=()=>{confirmingReset=true;showStart();};
   if(no)no.onclick=()=>{confirmingReset=false;showStart();};
@@ -3147,13 +3764,34 @@ function pruneTree(){
     if(!changed)break;
   }
 }
+// the whole loadout, so a card is read against what you already fly with rather
+// than in the abstract. The stat this node moves shows its after-value too, which
+// means simulating one more rank of it and putting the tree straight back.
+function statBlock(n){
+  const key=NODE_STAT[n.id];
+  if(!key)return '';
+  const before=treeStats();
+  let after=before;
+  if(!nodeMaxed(n)){
+    const held=tree[n.id];
+    tree[n.id]=treeRank(n.id)+1;
+    after=treeStats();
+    if(held===undefined)delete tree[n.id]; else tree[n.id]=held;
+  }
+  return '<dl class="tip-stats">'+STAT_ORDER.map(k=>{
+    const moved=k===key&&after[k]!==before[k];
+    return '<dt'+(moved?' class="on"':'')+'>'+STAT_LABEL[k]+'</dt><dd>'+statText(k,before[k])
+      +(moved?' <b>&rarr; '+statText(k,after[k])+'</b>':'')+'</dd>';
+  }).join('')+'</dl>';
+}
 function treeNodeHtml(n){
   const rank=treeRank(n.id), maxed=nodeMaxed(n), reqOk=nodeReqMet(n), cost=nodeCost(n);
   const cls=maxed?'own':devMode?'buy':!reqOk?'lock':skill>=cost?'buy':'poor';
   const pips=n.max>1?'<span class="tn-pips">'+Array.from({length:n.max},(_,i)=>'<i'+(i<rank?' class="on"':'')+'></i>').join('')+'</span>':'';
   const granted=nodeGranted(n.id);
   const meta=granted?'INCLUDED':maxed?(n.max>1?'MAX':'OWNED'):(cost===0?'FREE':cost+' SP');
-  const missing=n.req.filter(r=>!treeHas(r)).map(r=>TREE_BY_ID[r].name);
+  const missing=n.req.filter(r=>!treeHas(r)).map(r=>TREE_BY_ID[r].name)
+    .concat((n.reqMax||[]).filter(r=>!nodeAtMax(r)).map(r=>'every rank of '+TREE_BY_ID[r].name));
   const times=granted
     ? 'Arrives with '+characters[n.grantedBy].name+' at no cost &mdash; nothing to buy here'
     : n.max>1
@@ -3161,8 +3799,9 @@ function treeNodeHtml(n){
       : (maxed?'Taken &mdash; this one is a single unlock':'Can be taken once');
   const step=PASSIVE_STEP[n.id]?'<em class="tip-step">Per rank: '+PASSIVE_STEP[n.id]+'</em>':'';
   const tip='<span class="tip"><b>'+n.name+'</b><em>'+n.desc+'</em>'+step+'<i>'+times+'</i>'
-    +(maxed?'':'<u>'+(cost===0?'Costs nothing':'Costs '+cost+' SP'+(skill<cost&&!devMode?' &mdash; you have '+skill:''))+'</u>')
-    +(missing.length?'<s>Needs '+missing.join(' + ')+'</s>':'')+'</span>';
+    +(maxed?'':'<u>'+(cost===0?'Costs nothing':'Costs '+cost+' SP'+(skill<cost&&!devMode?' &mdash; you have '+skill:''))
+      +(n.step&&rank+1<n.max?' &middot; next rank '+nextRankCost(n)+'</u>':'</u>'))
+    +(missing.length?'<s>Needs '+missing.join(' + ')+'</s>':'')+statBlock(n)+'</span>';
   return '<button class="tnode '+cls+(n.ult?' ult':'')+'" data-node="'+n.id+'" style="--nc:'+(n.color||'#7fd6ff')+'">'
     +'<span class="tn-name">'+n.name+'</span><span class="tn-meta">'+meta+'</span>'+pips+tip+'</button>';
 }
@@ -3172,6 +3811,7 @@ function treeWeaponGroup(id,nodes){
     +'<div class="trow">'+nodes.map(treeNodeHtml).join('')+'</div></div>';
 }
 function showTree(){
+  setInRun(false);
   closeHowTo();
   const started=treeHas('w:bow');
   const groups={};
@@ -3191,12 +3831,21 @@ function showTree(){
   }else{
     body=section('CORE ARMAMENT','the cannon you always carry','<div class="trow">'+groups.bow.map(treeNodeHtml).join('')+'</div>')
       +section('ARMAMENTS','unlock weapons so runs can offer them',
-        ['laser','bomb','sword','mine','aegis','arc'].filter(id=>!exclusiveWeapons[id]||unlocked.has(exclusiveWeapons[id]))
+        ['laser','sword','bomb','mine','aegis','arc'].filter(id=>!exclusiveWeapons[id]||unlocked.has(exclusiveWeapons[id]))
           .map(id=>treeWeaponGroup(id,groups[id])).join(''))
       +section('SYSTEMS','airframe upgrades a level-up can hand you mid-run','<div class="trow">'+byBranch('systems')+'</div>')
       +section('AMPLIFIERS','raw damage, and the critical hits it opens','<div class="trow">'+byBranch('amp')+'</div>')
       +section('CADENCE','how fast everything you carry fires','<div class="trow">'+byBranch('rate')+'</div>')
-      +section('VELOCITY','how fast the airframe moves','<div class="trow">'+byBranch('speed')+'</div>');
+      +section('VELOCITY','how fast the airframe moves','<div class="trow">'+byBranch('speed')+'</div>')
+      // everything the second sector opens sits together at the foot of the tree
+      +(sectorOpen(2)
+        ? section('ARMAMENTS V2','hardware recovered from the drift',
+            SECTOR2_WEAPONS.map(id=>treeWeaponGroup(id,groups[id])).join(''))
+          +section('SYSTEMS V2','the same systems, rebuilt heavier','<div class="trow">'+byBranch('sys2')+'</div>')
+          +section('AMPLIFIERS V2','third-stage damage, criticals and cadence','<div class="trow">'+byBranch('amp2')+'</div>')
+        : '<div class="tbranch locked-branch"><div class="tb-head"><b>ARMAMENTS V2 &middot; SYSTEMS V2 &middot; AMPLIFIERS V2</b>'
+          +'<span>sealed until you reach '+sectorDef(2).name+'</span></div>'
+          +'<p class="tree-gate">Clear area '+FINAL_ROOM+' of '+sectorDef(1).name+' on HARD. The drift carries two more weapons, heavier systems, and a third stage on damage, criticals and cadence.</p></div>');
   }
   show('<div class="modal wide tree-modal">'
     +'<div class="eyebrow">UPGRADE TREE</div><h2>Systems</h2>'
@@ -3226,7 +3875,8 @@ function showTree(){
 // disk while it is on, so leaving dev mode hands the account back untouched
 function enterDev(){
   if(devMode)return;
-  devBackup={points,skill,highscore,chosen,unlocked:new Set(unlocked),tree:Object.assign({},tree)};
+  devBackup={points,skill,highscore,chosen,unlocked:new Set(unlocked),tree:Object.assign({},tree),
+    sectorsOpen:new Set(sectorsOpen),chosenSector};
   devMode=true;
   for(const id of Object.keys(characters))unlocked.add(id);
   toast('DEVELOPER MODE ON');
@@ -3236,6 +3886,7 @@ function exitDev(){
   devMode=false;
   points=devBackup.points;skill=devBackup.skill;highscore=devBackup.highscore;
   chosen=devBackup.chosen;unlocked=devBackup.unlocked;tree=devBackup.tree;
+  sectorsOpen=devBackup.sectorsOpen;chosenSector=devBackup.chosenSector;
   devBackup=null;
   savedRun=loadRun();                     // whatever was on disk before we started
   paintBest();
@@ -3288,4 +3939,4 @@ paintSoundBtn();
 // browsers only allow audio to start from a gesture, so open the context on the first one
 addEventListener('pointerdown',()=>{if(soundOn)initAudio();},{once:true});
 $('#pauseBtn').onclick=pause;
-paintBest();if(treeHas('w:bow'))showHome();else showTree();requestAnimationFrame(frame);
+paintBest();paintBrand();setInRun(false);if(treeHas('w:bow'))showHome();else showTree();requestAnimationFrame(frame);

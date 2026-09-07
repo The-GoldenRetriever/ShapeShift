@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Shapeshift: Neon Survivors</title>
+  <title>Starwing</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -12,8 +12,8 @@
 <body>
   <main class="shell">
     <header class="topbar">
-      <div class="brand"><span class="brand-mark">✦</span><div><h1>SHAPESHIFT</h1><p>NEON SURVIVORS // RUN 01</p></div></div>
-      <div class="wave-readout"><span>ROOM</span><strong id="waveNumber">1</strong><i id="waveState">HOSTILES INBOUND</i></div>
+      <div class="brand"><span class="brand-mark">✦</span><div><h1>STARWING</h1><p id="brandSub">NEON SECTOR // SECTOR 01</p></div></div>
+      <div class="wave-readout idle" id="areaReadout"><span>AREA</span><strong id="waveNumber">1</strong><i id="waveState">HOSTILES INBOUND</i></div>
       <div class="top-actions"><button id="soundBtn" class="icon-btn on" aria-label="Toggle sound" title="Mute (M)">&#9834;</button><button id="fsBtn" class="icon-btn" aria-label="Toggle fullscreen" title="Fullscreen (F)">⛶</button><button id="pauseBtn" class="icon-btn" aria-label="Pause game" title="Pause (Space)">Ⅱ</button></div>
     </header>
 
@@ -32,7 +32,7 @@
       <div id="toast" class="toast"></div>
       <div id="overlay" class="overlay"></div>
     </section>
-    <footer><span>RUN TIME <b id="timer">00:00</b></span><span>HOSTILES <b id="killCount">0</b></span><span>BEST ROOM <b id="bestWave">1</b></span><span class="footer-tip">COLLECT ✦ REMNANTS TO EVOLVE</span></footer>
+    <footer><span>RUN TIME <b id="timer">00:00</b></span><span>HOSTILES <b id="killCount">0</b></span><span>BEST AREA <b id="bestWave">1</b></span><span class="footer-tip">COLLECT ✦ REMNANTS TO EVOLVE</span></footer>
   </main>
   <script src="game.js"></script>
 </body>
