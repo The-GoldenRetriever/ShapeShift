@@ -353,3 +353,35 @@ body.touch .rotate-tip{margin:7px 0 0;text-align:center;font:9px 'DM Mono',monos
    Separate rules again: one unknown selector invalidates a whole comma group. */
 body.touch .game-wrap:fullscreen{margin:auto;width:min(100vw,calc(100vh * 1.6));height:min(calc(100vw / 1.6),100vh)}
 body.touch .game-wrap:-webkit-full-screen{margin:auto;width:min(100vw,calc(100vh * 1.6));height:min(calc(100vw / 1.6),100vh)}
+
+/* stand-in fullscreen for iOS, where no element but a <video> can go fullscreen.
+   `html body.fs-fallback` scores (0,2,2) on purpose: `body.touch .game-wrap` is
+   (0,2,1) and would otherwise tie-break on source order, which is the same trap
+   that pinned native fullscreen to the top of the screen. dvh, not vh, because
+   Safari's toolbars are still on screen here and vh measures past them. */
+body.fs-fallback{overflow:hidden;background:#05070d}   /* the native path paints its ::backdrop this colour */
+body.fs-fallback .topbar,body.fs-fallback footer,body.fs-fallback .rotate-tip{display:none}
+body.fs-fallback .shell{padding:0}
+html body.fs-fallback .game-wrap{position:fixed;inset:0;margin:auto;z-index:60;border:none;border-radius:0;box-shadow:none;
+  width:min(100vw,calc(100vh * 1.6));height:min(calc(100vw / 1.6),100vh)}
+@supports(height:100dvh){html body.fs-fallback .game-wrap{width:min(100vw,calc(100dvh * 1.6));height:min(calc(100vw / 1.6),100dvh)}}
+body.fs-fallback .game-wrap:before,body.fs-fallback .game-wrap canvas{border-radius:0}
+/* Fullscreen takes the topbar with it — display:none in the stand-in, outside the
+   painted subtree natively — and on a phone there is no Esc, no SPACE and no M to
+   fall back on, so pause, mute and the way out are repeated inside the arena.
+   `body.fs-on` is set by paintFsBtn for both paths, and the cluster lives inside
+   .game-wrap so the native fullscreen layer paints it. z-index sits under the
+   overlay's 5: a menu is already carrying its own buttons and should cover these. */
+.fs-controls{display:none}
+body.fs-on .fs-controls{display:flex;gap:6px;position:absolute;z-index:4;
+  top:calc(env(safe-area-inset-top,0px) + 11px);left:calc(env(safe-area-inset-left,0px) + 14px)}
+body.fs-on .fs-controls .icon-btn{background:#0b1220cc;border-color:#2a3b56;color:#9fb2cd;
+  -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+body.fs-on .fs-controls .icon-btn:hover{border-color:#3c5f7d;color:#dbe7fc}
+body.fs-on .fs-controls .icon-btn.on{border-color:var(--cyan);color:var(--cyan)}
+/* a thumb needs more than the topbar's 35x31 */
+body.touch.fs-on .fs-controls .icon-btn{width:42px;height:38px;font-size:15px}
+/* and the two readouts that share that corner slide clear of the cluster */
+body.fs-on .arena-label{left:152px}
+body.touch.fs-on .arena-label{left:168px}
+body.touch.fs-on .weapon-hud{top:calc(env(safe-area-inset-top,0px) + 60px)}

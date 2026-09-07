@@ -11,7 +11,7 @@ function camera(){
 }
 const MOVE = 1.15;         // how much of that growth travel speeds take on
 const $ = id => document.querySelector(id);
-const ui = { hp: $('#healthFill'), hpText: $('#healthText'), xp: $('#xpFill'), xpText: $('#xpText'), level: $('#levelText'), weapons: $('#weaponList'), room: $('#waveNumber'), roomState: $('#waveState'), areaBox: $('#areaReadout'), brandSub: $('#brandSub'), kills: $('#killCount'), timer: $('#timer'), best: $('#bestWave'), toast: $('#toast'), dashRow: $('#dashRow'), dashText: $('#dashText'), phaseRow: $('#phaseRow'), phaseText: $('#phaseText'), pulseRow: $('#pulseRow'), pulseText: $('#pulseText'), soundBtn: $('#soundBtn'), xpHud: $('.xp-hud'), arena: $('.arena-label'), fsBtn: $('#fsBtn'), overlay: $('#overlay') };
+const ui = { hp: $('#healthFill'), hpText: $('#healthText'), xp: $('#xpFill'), xpText: $('#xpText'), level: $('#levelText'), weapons: $('#weaponList'), room: $('#waveNumber'), roomState: $('#waveState'), areaBox: $('#areaReadout'), brandSub: $('#brandSub'), kills: $('#killCount'), timer: $('#timer'), best: $('#bestWave'), toast: $('#toast'), dashRow: $('#dashRow'), dashText: $('#dashText'), phaseRow: $('#phaseRow'), phaseText: $('#phaseText'), pulseRow: $('#pulseRow'), pulseText: $('#pulseText'), soundBtn: $('#soundBtn'), xpHud: $('.xp-hud'), arena: $('.arena-label'), fsBtn: $('#fsBtn'), fsExit: $('#fsExit'), fsPause: $('#fsPause'), fsMute: $('#fsMute'), overlay: $('#overlay') };
 const keys = new Set();
 
 // ---- audio ---------------------------------------------------------------
@@ -93,10 +93,13 @@ function setSound(on){
   paintSoundBtn();
 }
 function paintSoundBtn(){
-  if(!ui.soundBtn)return;
-  ui.soundBtn.textContent=soundOn?'\u266A':'\u2717';
-  ui.soundBtn.title=soundOn?'Mute (M)':'Unmute (M)';
-  ui.soundBtn.classList.toggle('on',soundOn);
+  // the topbar's button and the in-arena one are the same control in two places
+  for(const b of [ui.soundBtn,ui.fsMute]){
+    if(!b)continue;
+    b.textContent=soundOn?'\u266A':'\u2717';
+    b.title=touchMode?(soundOn?'Mute':'Unmute'):(soundOn?'Mute (M)':'Unmute (M)');
+    b.classList.toggle('on',soundOn);
+  }
 }
 const types = {
   square: { hp: 3, speed: 42, r: 16, color: '#ff6387', xp: 8, sides: 4 },
@@ -230,8 +233,8 @@ const characters = {
                blurb:'Carries a deflector projector. Nothing gets close without paying for it.', perks:['exclusive: DEFLECTOR SHIELD','+20% hull','-8% speed'] },
   revenant:  { name:'REVENANT',   cost:1000, hp:.8,   speed:1.1,  color:'#c879ff', tag:'VOLATILE', plane:'delta', sides:4, mark:'sparks', weapon:'arc',
                blurb:'Wired to an ion arc that leaps between targets.', perks:['exclusive: ION ARC','-20% hull','+10% speed'] },
-  paragon:   { name:'PARAGON',    cost:2000, hp:1.1,  speed:1.1,  color:'#ffe17a', tag:'APEX', plane:'apex', sides:6, mark:'star', damage:1.2, xp:1.2, shock:14,
-               blurb:'Every system tuned past spec, down to a repulsor nobody else can carry.', perks:['Q &mdash; SHOCKWAVE, 14s cooldown','+20% weapon damage','+20% XP gained','+10% hull','+10% speed'] }
+  paragon:   { name:'PARAGON',    cost:2000, hp:1.1,  speed:1.1,  color:'#ffe17a', tag:'APEX', plane:'apex', sides:6, mark:'star', damage:1.2, xp:1.2, shock:10,
+               blurb:'Every system tuned past spec, down to a repulsor nobody else can carry.', perks:['Q &mdash; SHOCKWAVE, 10s cooldown','+20% weapon damage','+20% XP gained','+10% hull','+10% speed'] }
 };
 // v2 introduces the skill tree, which changes what a run is allowed to offer you.
 // Progress earned under the old economy has no meaning here, so every profile is
@@ -440,7 +443,7 @@ function touchButtons(){
 function abilityState(id){
   if(id==='dash') return {on:!!state.hasDash, cd:state.dashCooldown||0, max:state.dashCd||3, live:state.dashTime>0};
   if(id==='phase')return {on:!!state.hasCloak,cd:state.cloakCooldown||0,max:12,             live:state.cloakTime>0};
-  return              {on:!!state.hasPulse,cd:state.pulseCooldown||0,max:state.pulseCd||14,live:false};
+  return              {on:!!state.hasPulse,cd:state.pulseCooldown||0,max:state.pulseCd||10,live:false};
 }
 const fireAbility=id=>{if(id==='dash')dash();else if(id==='phase')phaseCloak();else shockPulse();};
 // the pads only exist while a run is actually being flown: not on a menu, not
@@ -513,7 +516,7 @@ function reset(difficulty = 'medium') {
   const maxHp = Math.round(100 * c.hp);
   player = { x: RW / 2, y: RH / 2, r: 16, hp: maxHp, maxHp, speed: Math.round(288 * c.speed * treeSpeed()), regen: 3 + (c.regen || 0), hurtAt: -10, aim: 0, heading: 0, thrust: 0, vx: 0, vy: 0 };
   enemies = []; arrows = []; enemyBullets = []; stars = []; particles = []; blasts = []; delayedBlasts = []; echoShots = []; damageNumbers = []; strikes = []; rings = []; pulses = []; beams = []; mines = []; wells = []; rockets = []; walls = []; dashGhosts = [];
-  state = { difficulty, last: performance.now(), time: 0, room: 1, level: 1, xp: 0, need: 60, kills: 0, left: 0, spawnIn: 0, active: true, paused: false, upgradeOpen: false, intermission: false, transitioning: false, roomTransition: 0, exit: null, relicRooms: {}, globals: {}, relicsTaken: [], relicOpen: false, relicDraw: null, enemyPace: 1, armor: 1, siphon: 0, thorns: 0, magnet: 0, vacuum: false, beatBest: false, over: false, dying: 0, hitStop: 0, beatIn: 0, lowPulse: 0, knockX: 0, knockY: 0, knockT: 0, paidCredits: 0, portalArm: 0, history: [], echo: null, cloakTime: 0, cloakCooldown: 0, bowIn: 0, laserIn: 0, bombIn: 0, mineIn: 0, missileIn: 0, phalanxIn: 0, dashCooldown: 0, dashTime: 0, dashX: 0, dashY: 0, dashPower: 1, dashCd: 3, pulseCooldown: 0, pulseCd: 14, arcIn: 0, character: STARTER, charXp: 1, charDamage: 1, lastMoveX: 1, lastMoveY: 0, shake: 0, playerAlpha: 1, screenAlpha: 0, cameraZoom: 1, zoomCenterX: RW/2, zoomCenterY: RH/2, victoryPortal: null, victorySequence: null, victoryTimer: 0, roomBanner: null, cameraRot: 0, flash: 0, warp: null, suckR: 0, suckA: 0, suckDir: 1, portalCharge: 0, hurtFlash: 0, weapons: { bow: { name: 'VULCAN CANNON', color: '#55e6ff', damage: 2, rate: 1.3, level: 0, upgrades: 0, taken: [], ultimate: false } } };
+  state = { difficulty, last: performance.now(), time: 0, room: 1, level: 1, xp: 0, need: 60, kills: 0, left: 0, spawnIn: 0, active: true, paused: false, upgradeOpen: false, intermission: false, transitioning: false, roomTransition: 0, exit: null, relicRooms: {}, globals: {}, relicsTaken: [], relicOpen: false, relicDraw: null, enemyPace: 1, armor: 1, siphon: 0, thorns: 0, magnet: 0, vacuum: false, beatBest: false, over: false, dying: 0, hitStop: 0, beatIn: 0, lowPulse: 0, knockX: 0, knockY: 0, knockT: 0, paidCredits: 0, portalArm: 0, history: [], echo: null, cloakTime: 0, cloakCooldown: 0, bowIn: 0, laserIn: 0, bombIn: 0, mineIn: 0, missileIn: 0, phalanxIn: 0, dashCooldown: 0, dashTime: 0, dashX: 0, dashY: 0, dashPower: 1, dashCd: 3, pulseCooldown: 0, pulseCd: 10, arcIn: 0, character: STARTER, charXp: 1, charDamage: 1, lastMoveX: 1, lastMoveY: 0, shake: 0, playerAlpha: 1, screenAlpha: 0, cameraZoom: 1, zoomCenterX: RW/2, zoomCenterY: RH/2, victoryPortal: null, victorySequence: null, victoryTimer: 0, roomBanner: null, cameraRot: 0, flash: 0, warp: null, suckR: 0, suckA: 0, suckDir: 1, portalCharge: 0, hurtFlash: 0, weapons: { bow: { name: 'VULCAN CANNON', color: '#55e6ff', damage: 2, rate: 1.3, level: 0, upgrades: 0, taken: [], ultimate: false } } };
   state.sector=sectorOpen(chosenSector)?chosenSector:1;
   state.character=chosen;
   state.charXp=c.xp||1;
@@ -741,7 +744,7 @@ function phaseCloak(){if(!state||!state.hasCloak||state.paused||state.victorySeq
 // damage — it buys the second of space that a swarm was about to close.
 function shockPulse(){
   if(!state||!state.hasPulse||state.paused||state.transitioning||state.victorySequence||state.dying>0||state.pulseCooldown>0)return;
-  state.pulseCooldown=state.pulseCd||14;
+  state.pulseCooldown=state.pulseCd||10;
   const col=pilotColor();
   sfx('ult');hitStop(.06);shake(16);state.flash=Math.max(state.flash,.28);
   burst(player.x,player.y,col,44,340,{size:3.2,drag:2.4});
@@ -4984,30 +4987,62 @@ function showDevPrompt(){
   if(inp){inp.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go();}};if(inp.focus)inp.focus();}
 }
 const fsTarget=()=>document.querySelector('.game-wrap');
-const fsActive=()=>!!(document.fullscreenElement||document.webkitFullscreenElement);
+// iOS has no element fullscreen API at all — only a <video> can go fullscreen
+// there — so on every browser on an iPhone `enter` was undefined and the button
+// did nothing whatsoever, with no feedback to say why. When the real thing is
+// missing, or the browser refuses the request, we stand in for it: `body.fs-fallback`
+// pins the arena over the page at canvas aspect and hides the chrome. It cannot
+// retract Safari's own toolbars — nothing on the page can — but it wins back the
+// topbar and the footer, and the same button turns it off again.
+let fsFallback=false;
+const fsNative=()=>!!(document.fullscreenElement||document.webkitFullscreenElement);
+const fsCanNative=()=>{const el=fsTarget();return !!(el&&(el.requestFullscreen||el.webkitRequestFullscreen));};
+const fsActive=()=>fsNative()||fsFallback;
+function setFsFallback(on){
+  fsFallback=!!on;
+  document.body.classList.toggle('fs-fallback',fsFallback);
+  paintFsBtn();
+  measureCanvas();      // the arena just changed size, and the pads are hit-tested against it
+}
 function toggleFullscreen(){
   const el=fsTarget();
   if(!el)return;
-  try{
-    if(fsActive()){
+  if(fsFallback){setFsFallback(false);return;}
+  if(!fsCanNative()){setFsFallback(true);return;}
+  if(fsNative()){
+    try{
       const exit=document.exitFullscreen||document.webkitExitFullscreen;
       if(exit){const r=exit.call(document);if(r&&r.catch)r.catch(()=>{});}
-    }else{
-      const enter=el.requestFullscreen||el.webkitRequestFullscreen;
-      if(enter){const r=enter.call(el);if(r&&r.catch)r.catch(()=>{});}
-    }
-  }catch(e){}
+    }catch(e){}
+    return;                 // a failed exit must not drop the stand-in on top of real fullscreen
+  }
+  try{
+    const enter=el.requestFullscreen||el.webkitRequestFullscreen;
+    // a rejected request (permissions policy in an iframe, a browser that simply
+    // says no) lands on the stand-in rather than on nothing happening at all
+    const r=enter.call(el);if(r&&r.catch)r.catch(()=>setFsFallback(true));
+  }catch(e){setFsFallback(true);}
 }
 function paintFsBtn(){
-  if(!ui.fsBtn)return;
   const on=fsActive();
+  // the in-arena cluster is the only chrome that survives fullscreen — the topbar
+  // is display:none in the stand-in, and outside the painted subtree natively —
+  // so one class drives it for both paths
+  document.body.classList.toggle('fs-on',on);
+  if(!ui.fsBtn)return;
   ui.fsBtn.textContent=on?'\u2715':'\u26F6';
-  ui.fsBtn.title=on?'Exit fullscreen (F or Esc)':'Fullscreen (F)';
+  ui.fsBtn.title=touchMode?(on?'Exit fullscreen':'Fullscreen')
+    :on?(fsFallback?'Exit fullscreen (F)':'Exit fullscreen (F or Esc)'):'Fullscreen (F)';
   ui.fsBtn.classList.toggle('on',on);
 }
 addEventListener('fullscreenchange',()=>{paintFsBtn();measureCanvas();});
 addEventListener('webkitfullscreenchange',()=>{paintFsBtn();measureCanvas();});
 if(ui.fsBtn)ui.fsBtn.onclick=toggleFullscreen;
+// fullscreen hides the topbar, so pause, mute and the way out are repeated inside
+// the arena where they still render
+if(ui.fsExit)ui.fsExit.onclick=toggleFullscreen;
+if(ui.fsPause)ui.fsPause.onclick=()=>pause();
+if(ui.fsMute)ui.fsMute.onclick=()=>{initAudio();setSound(!soundOn);sfx('ui');};
 if(ui.soundBtn)ui.soundBtn.onclick=()=>{initAudio();setSound(!soundOn);sfx('ui');};
 paintSoundBtn();
 // browsers only allow audio to start from a gesture, so open the context on the first one
