@@ -193,5 +193,6 @@ Also add it to the weapon id list in `buildTree()`, and to `showTree()`'s ARMAME
 - Prose in comments is lowercase-leaning and terse; on-screen labels are ALL CAPS.
 - Damage, speeds and cooldowns are per-second values multiplied by `dt` — never per-frame constants.
 - `styles.css` is appended to, not rewritten: new rules go in a labelled block at the end rather than into the minified first line.
+- On-screen, the skill tree is the **OVERHAUL BAY** and its nodes are **overhauls**; in code it is all still the tree (`tree`, `TREE_NODES`, `showTree`, `shapeshift_tree`, every `w:`/`u:`/`ult:`/`g:` node id). Same rule as below: rename the label, never the key.
 - On-screen, an area is an **AREA**; in code it is still `room` (`state.room`, `beginRoom`, `shapeshift_best_room`). The identifiers are load-bearing — saved runs and localStorage keys use them — so rename the label, never the key.
 - Weapon display names get renamed for flavour fairly often (`bow` is `VULCAN CANNON`, `laser` is `PHOTON LANCE`). The **keys** — `bow`, `laser`, `bomb`, `sword`, `aegis`, `arc`, `mine`, `missile`, `phalanx` — are the stable identifiers and appear in saved runs *and in every tree node id*; don't rename them.

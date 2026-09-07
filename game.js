@@ -3884,7 +3884,7 @@ function showHome(){
           // parking already paid for the ground it covered, so letting it go costs nothing — it just clears the slot
           +'<button class="continue ghost'+(confirmingDrop?' danger':'')+'" id="homeDrop">'+(confirmingDrop?'DISCARD IT? THIS CANNOT BE UNDONE':'DISCARD RUN')+'</button>'
         : '<button class="continue big" id="homePlay">PLAY</button>')
-      +'<button class="continue ghost" id="homeTree">UPGRADE TREE'+(treeAffordable()?' <em class="pip">'+treeAffordable()+'</em>':'')+'</button>'
+      +'<button class="continue ghost" id="homeTree">OVERHAUL BAY'+(treeAffordable()?' <em class="pip">'+treeAffordable()+'</em>':'')+'</button>'
       +'<button class="continue ghost" id="homeHow">HOW TO PLAY</button>'
       +'<button class="continue ghost" id="homeRoster">HANGAR'+(affordableCount()?' <em class="pip">'+affordableCount()+'</em>':'')+'</button>'
     +'</div>'
@@ -4040,7 +4040,7 @@ function showStart(){
   if(no)no.onclick=()=>{confirmingReset=false;showStart();};
   if(yes)yes.onclick=()=>{resetSavedData();confirmingReset=false;showTree();};   // wiped: the cannon has to be taken again
 }
-// ---- upgrade tree screen ------------------------------------------------
+// ---- overhaul bay (the upgrade tree) ------------------------------------
 const treeAffordable=()=>devMode?0:TREE_NODES.filter(nodeBuyable).length;   // nodeBuyable already excludes hidden groups
 // zero anything whose prerequisite has gone away, repeatedly, so dev toggles
 // can never leave the tree in a state a normal purchase could not reach
@@ -4114,7 +4114,7 @@ function showTree(){
     // the very first screen: one node, and nothing else to think about yet
     body=section('CORE ARMAMENT','the cannon you always carry',
       '<div class="trow">'+treeNodeHtml(TREE_BY_ID['w:bow'])+'</div>')
-      +'<p class="tree-gate">Take the cannon &mdash; it is free. Everything else on this tree opens up once you have it, and is paid for with skill points earned by surviving rooms.</p>';
+      +'<p class="tree-gate">Take the cannon &mdash; it is free. Every other overhaul in the bay opens up once you have it, and is paid for with skill points earned by surviving rooms.</p>';
   }else{
     body=section('CORE ARMAMENT','the cannon you always carry','<div class="trow">'+groups.bow.map(treeNodeHtml).join('')+'</div>')
       +section('ARMAMENTS','unlock weapons so runs can offer them',
@@ -4135,7 +4135,7 @@ function showTree(){
           +'<p class="tree-gate">Clear area '+FINAL_ROOM+' of '+sectorDef(1).name+' on HARD. The drift carries two more weapons, heavier systems, and a third stage on damage, criticals and cadence.</p></div>');
   }
   show('<div class="modal wide tree-modal">'
-    +'<div class="eyebrow">UPGRADE TREE</div><h2>Systems</h2>'
+    +'<div class="eyebrow">OVERHAUL BAY</div><h2>Systems</h2>'
     +'<div class="tree-bar"><span>SKILL POINTS <b'+(devMode?' class="dev"':'')+'>'+(devMode?'DEV':skill)+'</b></span>'
       +'<span>UNLOCKED <b>'+taken+' / '+total+'</b></span>'
       +'<span class="tree-hint">'+(devMode?'Dev mode: click any node to toggle it':'Hover a node for detail')+'</span></div>'
@@ -4183,7 +4183,7 @@ function exitDev(){
 }
 function showDevPrompt(){
   show('<div class="modal dev-modal"><div class="eyebrow">DEVELOPER</div><h2>Enter password</h2>'
-    +'<p>Unlocks every pilot, lets you switch any tree node on or off, and can force the mobile controls on a machine with a keyboard. Your saved profile is set aside while it is on, and handed straight back when you leave.</p>'
+    +'<p>Unlocks every pilot, lets you switch any overhaul on or off, and can force the mobile controls on a machine with a keyboard. Your saved profile is set aside while it is on, and handed straight back when you leave.</p>'
     +'<input id="devPass" class="dev-input" type="password" autocomplete="off" spellcheck="false" placeholder="PASSWORD">'
     +'<div class="dev-msg" id="devMsg"></div>'
     +'<button class="continue" id="devGo">ENTER</button>'
