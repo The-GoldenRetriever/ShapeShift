@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**Starwing: Neon Sector** — a browser roguelite/survivors game. (It was *Shapeshift: Neon Survivors*; the `shapeshift_` localStorage prefix is deliberately **not** renamed, since changing it would orphan every saved profile.) Three files, zero dependencies, no build step, no framework, no package manager:
+**Starwing: Neon Sector** — a browser roguelite/survivors game. (It was *Shapeshift: Neon Survivors*; the `shapeshift_` localStorage prefix is deliberately **not** renamed, since changing it would orphan every saved profile.) Three files, no build step, no framework, no package manager, no npm dependencies (the only external fetch is the Google Fonts link in `index.html` for DM Mono / Space Grotesk — offline it falls back to system fonts and plays fine):
 
 - `index.html` — the canvas plus the DOM HUD (every element the game writes to has an `id`)
 - `styles.css` — one minified base block, then appended readable override blocks
-- `game.js` — the entire game (~4940 lines, flat script, no modules or classes)
+- `game.js` — the entire game (~5000 lines, flat script, no modules or classes)
 
 ## Running
 
@@ -30,6 +30,7 @@ There is no build, no lint, and no test suite. Verification is by playing. Contr
 skill = 5000; showTree()                                 // afford every tree node this session
 points = 5000; showRoster()                              // afford every pilot
 localStorage.setItem('shapeshift_hard_beaten','true')    // unlock IMPOSSIBLE without clearing room 50
+devJumpToArea(40)                                        // dev only: rebuild the run in any area, keeping the loadout
 state.room = 9; state.left = 0; enemies.length = 0       // next portal leads to a boss room
 state.xp = state.need                                    // force a level-up draw next frame
 state.weapons.mine = newWeapon('mine')                   // grant a weapon outright
@@ -37,7 +38,7 @@ setTouchMode(true)                                       // flip to the on-scree
 enterDev()                                               // every pilot unlocked, profile set aside
 ```
 
-`enterDev()` (reachable in-game from the home screen behind the password in `showDevPrompt`) is a sandbox: while `devMode` is true, `saveProfile`, `saveTree`, `storeRun`, `clearRun` and `recordRoom` all no-op, and `exitDev()` restores the pre-dev profile from `devBackup` — including the touch scheme, so a forced MOBILE ON reverts to whatever the device itself asked for. Clicking a node in dev mode toggles its rank rather than buying it, and toggling one off runs `pruneTree()`, which zeroes every node whose `req` is no longer met. **Any new persistence call has to check `devMode` too**, or dev play will overwrite a real save.
+`enterDev()` (reachable in-game from the home screen behind the password in `showDevPrompt`) is a sandbox: while `devMode` is true, `saveProfile`, `saveTree`, `storeRun`, `clearRun` and `recordRoom` all no-op, and `exitDev()` restores the pre-dev profile from `devBackup` — including the touch scheme, so a forced MOBILE ON reverts to whatever the device itself asked for. Clicking a node in dev mode toggles its rank rather than buying it, and toggling one off runs `pruneTree()`, which zeroes every node whose `req` is no longer met. ENABLE ALL / CLEAR ALL in the bay's top bar are `devMaxTree()` / `devClearTree()` — the fill only touches nodes `nodeVisible` passes, and the clear keeps `w:bow` because the bay's one-node first screen has no way back out. Neither changes a run already in the air: tree passives are read into run scalars at `reset()`. The pause menu's DEV row calls `devJumpToArea(room)`, which empties every entity array, clears the portal/warp fields and calls `beginRoom()` — the loadout comes with you, so it is the fastest way to see a boss or a late-area crowd. The row below it is `devGrantRefits(n)` — free level-up draws pushed straight into `state.freeDraws`, which is what `headstart` pays for at pre-flight; `n` of 0 clears the queue, and `state.hasDraw` is recomputed on every grant because bay toggles change the pool mid-run. **Any new persistence call has to check `devMode` too**, or dev play will overwrite a real save.
 
 ## Architecture
 
@@ -104,7 +105,7 @@ Taking an in-run upgrade changes what a weapon draws, not just what it does. Not
 
 ### Enemy movement is steering, not seeking
 
-`moveEnemy` builds a force vector rather than walking straight at the player: a unit vector toward an aim point, a tangent for strafing, plus separation from every other enemy (hard push under `e.r+o.r+12`, a softer sideways slide under 210px) so crowds fan out instead of stacking into one line. Shapes carrying a `hold` value in `types` (`bowtie`, `seeker`, `raker`, `scorcher`, `pyre`) are **gunboats**: they keep that standoff distance and orbit at it instead of closing. The force is normalised, then applied at the shape's speed — so tuning `hold` changes engagement range, not pace.
+`moveEnemy` builds a force vector rather than walking straight at the player: a unit vector toward an aim point, a tangent for strafing, plus separation from every other enemy (hard push under `e.r+o.r+12`, a softer sideways slide under 210px) so crowds fan out instead of stacking into one line. Shapes carrying a `hold` value in `types` (`bowtie`, `seeker`, `raker`, `sentry`, `stalker`, `scorcher`, `pyre`) are **gunboats**: they keep that standoff distance and orbit at it instead of closing. The force is normalised, then applied at the shape's speed — so tuning `hold` changes engagement range, not pace.
 
 The aim point is the player for everything except a shape flagged `guard: true` in `types` (`picket`). A **screen** picks a ward via `guardWard()` — the fragile long-range shape *you* are closest to, since that is the one your guns are about to pick — and steers to a point `GUARD_LEAD` in front of it on the line between you and it, never closer to you than `GUARD_KEEP`. It does not block shots or touch targeting: sitting there simply makes it the nearest thing on screen, and `nearest()` does the rest. With no ward in `GUARD_REACH` it reverts to an ordinary chaser. Guards ease off as they arrive (`clamp(d/45,.2,1)`) so they settle on station instead of oscillating across it, and `wardable()` excludes other guards so screens cannot cover each other.
 
@@ -161,7 +162,6 @@ Tuning lives in data tables near the top of `game.js` rather than in code — pr
 | `types` | per-shape hp / speed / radius / colour / xp / sides, plus `hold` for standoff gunboats, `guard` for screens, and `splits`/`splitInto` for shapes that come apart on death (hp and speed are multipliers on the 100hp, 288px/s baseline) |
 | `BEAM_ENEMIES`, `BEAM_CAP` | the lane-painting family (`raker` → `scorcher` → `pyre`): lanes per volley, burn time, reach, damage and reload, plus the hard ceiling on how many lanes may be on the floor at once |
 | `GUARD_LEAD`, `GUARD_KEEP`, `GUARD_REACH` | how far in front of its ward a screen sits, how close to you it will come, and how far it will travel to cover something |
-| `spawnTable` | which shapes appear from which room, base weight, and `growth` (negative = fades out as rooms climb) |
 | `bossOrder`, `MOTHERSHIP`, `LEVIATHAN`, `SECTOR_FINALE` | the shared rotation pool for areas 10–40 (`hpMult`, contact damage, blurb), the two area-50 finales that sit off it, and which sector ends on which |
 | `RELICS` | the boss-relic pool: card text, pause-menu line, and the `apply` that grants it |
 | `difficulties` | hp / speed / dmg / heavy / credits / mass / mix multipliers, plus `shot` and `shotLife` for enemy projectile speed and lifetime |
@@ -169,7 +169,7 @@ Tuning lives in data tables near the top of `game.js` rather than in code — pr
 | `HULLS`, `HULL_OF`, `PLANES`, `PLANE_SCALE` | the unit-space polygon each pilot's ship is drawn from, and the `plane` class that scales it |
 | `weaponData`, `weaponUpgrades`, `ultimateData` | weapon base stats, the five upgrades each, and the ultimate |
 | `DMG_UPGRADE` | which upgrade carries each weapon's visual signature — the one edit needed if an upgrade is renamed or the look moves to a different one |
-| `SECTORS`, `SECTOR_SPAWNS`, `SECTOR_BOSSES` | per-sector scaling curves, spawn pools, boss order and sky palette |
+| `SECTORS`, `SECTOR_SPAWNS`, `SECTOR_BOSSES` | per-sector scaling curves, boss order and sky palette, plus the spawn pool: one row per shape, `from` (first area it appears in), `base` weight and `growth` (negative = fades out as areas climb). There is no single global spawn table — every sector carries its own |
 | `SECTOR2_WEAPONS`, `WALL_SPEED`, `WALL_LEG` | which armaments the second sector opens, and how far a PHALANX WALL throws |
 | `DASH_SHEAR`, `DASH_SHOVE` | what SHEAR DRIVE's two ranks do to what the dash passes through |
 | `dashKit()`, `dashTier()`, `DASH_GHOST_GAP` | which dash upgrades are installed, and how densely the trail records silhouettes — the dash animation is built from these |
@@ -204,7 +204,7 @@ Because the script is flat, one feature spreads across many functions. Miss a st
 
 Also add it to the weapon id list in `buildTree()`, and to `showTree()`'s ARMAMENTS list — or to `SECTOR2_WEAPONS`, which routes it into the ARMAMENTS V2 section and hides it until sector 2 is open. Add to `exclusiveWeapons` if it belongs to one pilot and must never appear in the level-up draw.
 
-**A new enemy shape:** `types` entry (`hold` makes it a gunboat, `guard` makes it a screen, `ring` is the SENTINEL marking, `splits`+`splitInto` makes it burst into something on death) → a `SECTOR_SPAWNS` row in whichever sectors it flies in, with `from` area and `growth` → a `HULL_OF` entry, or it draws with the default `pod` silhouette → any attack pattern in `moveEnemy` → `enemyPath` / `drawEnemies` if it needs art of its own.
+**A new enemy shape:** `types` entry (`hold` makes it a gunboat, `guard` makes it a screen, `ring` is the SENTRY marking, `splits`+`splitInto` makes it burst into something on death) → a `SECTOR_SPAWNS` row in whichever sectors it flies in, with `from` area and `growth` → a `HULL_OF` entry, or it draws with the default `pod` silhouette → any attack pattern in `moveEnemy` → `enemyPath` / `drawEnemies` if it needs art of its own.
 
 A **new grade of lane-painter** is just a `BEAM_ENEMIES` row plus the `types` and `SECTOR_SPAWNS` entries — the firing code is table-driven, so nothing in `moveEnemy` changes. A **new splitter** needs no new code either: `deaths()` queues shrapnel and spawns it after the sweep reassigns `enemies`, and flags each child `split` so shrapnel cannot itself split.
 

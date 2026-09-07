@@ -2749,6 +2749,19 @@ function loadoutMarkup(){
   return '<div class="modal wide"><div class="eyebrow">SYSTEM PAUSED</div><h2>Loadout</h2>'+stats
     +'<div class="loadout">'+weapons+'</div>'
     +(extras?'<div class="lo-extras"><span class="lo-title">SYSTEMS &amp; RELICS</span><ul class="lo-list">'+extras+'</ul></div>':'')
+    +(devMode
+      ? '<div class="dev-row"><span>DEV &middot; JUMP TO AREA</span>'
+        +'<input id="devArea" type="number" min="1" max="'+FINAL_ROOM+'" value="'+state.room+'">'
+        +'<button id="devJump">JUMP</button>'
+        +'<span class="dev-quick">'+[10,20,30,40,FINAL_ROOM].map(r=>'<button data-area="'+r+'">'+r+'</button>').join('')+'</span>'
+        +'<em>the area is rebuilt from scratch &mdash; your loadout, level and hull come with you</em></div>'
+        +'<div class="dev-row"><span>DEV &middot; FIELD REFITS</span>'
+        +'<button data-refit="1">+1</button><button data-refit="5">+5</button><button data-refit="0">CLEAR</button>'
+        +'<span class="dev-count">'+(state.freeDraws||0)+' PENDING</span>'
+        +'<em>'+(state.hasDraw
+          ? 'free level-up draws, the same ones FIELD REFIT pays for &mdash; resume and they open one after another'
+          : 'the draw pool is empty, so a refit has nothing to offer &mdash; install more in the bay first')+'</em></div>'
+      : '')
     +(confirmingEnd
       ? '<div class="reset-row confirming"><span>'+(creditsOwed()?'Leave the run here and bank '+creditsOwed()+' credits?':'Leave the run here? Nothing new to bank yet.')+' The run is saved and you can continue it from the main menu.</span><button id="endNo">KEEP PLAYING</button><button id="endYes" class="danger">LEAVE RUN</button></div>'
       : '<div class="reset-row"><span>'+(creditsOwed()?'LEAVING NOW BANKS <b>'+creditsOwed()+'</b> CREDITS':(state.room<CREDIT_MIN_ROOM?'NO CREDITS UNTIL AREA <b>'+CREDIT_MIN_ROOM+'</b> &mdash; YOU ARE ON <b>'+state.room+'</b>':'NOTHING NEW TO BANK YET'))+'</span><button id="endRun">LEAVE RUN</button></div>')
@@ -2794,6 +2807,11 @@ function openPauseMenu(){
   if(end)end.onclick=()=>{confirmingEnd=true;openPauseMenu();};
   if(no)no.onclick=()=>{confirmingEnd=false;openPauseMenu();};
   if(yes)yes.onclick=()=>{confirmingEnd=false;bankAndPark();};
+  const jump=$('#devJump'),area=$('#devArea');
+  if(jump)jump.onclick=()=>devJumpToArea(area?+area.value:state.room);
+  if(area)area.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();devJumpToArea(+area.value);}};
+  document.querySelectorAll('[data-area]').forEach(b=>b.onclick=()=>devJumpToArea(+b.dataset.area));
+  document.querySelectorAll('[data-refit]').forEach(b=>b.onclick=()=>devGrantRefits(+b.dataset.refit));
 }
 function gameOver(){
   setInRun(false);
@@ -4849,7 +4867,8 @@ function showTree(){
     +'<div class="eyebrow">OVERHAUL BAY</div><h2>Systems</h2>'
     +'<div class="tree-bar"><span>SKILL POINTS <b'+(devMode?' class="dev"':'')+'>'+(devMode?'DEV':skill)+'</b></span>'
       +'<span>UNLOCKED <b>'+taken+' / '+total+'</b></span>'
-      +'<span class="tree-hint">'+(devMode?'Dev mode: click any node to toggle it':'Hover a node for detail')+'</span></div>'
+      +'<span class="tree-hint">'+(devMode?'Dev mode: click any node to toggle it':'Hover a node for detail')+'</span>'
+      +(devMode?'<span class="dev-actions"><button id="treeAll">ENABLE ALL</button><button id="treeNone">CLEAR ALL</button></span>':'')+'</div>'
     +'<div class="tree">'+body+'</div>'
     +(started?'<button class="continue" id="treeBack">BACK</button>':'')
   +'</div>');
@@ -4866,6 +4885,9 @@ function showTree(){
     sfx(n.ult?'ult':'level');
     showTree();
   });
+  const all=$('#treeAll'), none=$('#treeNone');
+  if(all)all.onclick=()=>{sfx('ult');devMaxTree();toast('EVERY OVERHAUL INSTALLED — FLY A NEW RUN TO USE THEM');showTree();};
+  if(none)none.onclick=()=>{sfx('ui');devClearTree();toast('OVERHAULS CLEARED — CANNON KEPT');showTree();};
   const back=$('#treeBack'); if(back)back.onclick=()=>{sfx('ui');showHome();};
 }
 // ---- developer mode -----------------------------------------------------
@@ -4890,11 +4912,57 @@ function exitDev(){
   devBackup=null;
   savedRun=loadRun();                     // whatever was on disk before we started
   paintBest();
-  toast('DEVELOPER MODE OFF &mdash; PROFILE RESTORED');
+  toast('DEVELOPER MODE OFF — PROFILE RESTORED');
+}
+// fill the bay in one press. Only visible nodes are touched, so a group still
+// behind a pilot or a sector gate cannot be switched on through the back door,
+// and granted nodes are left alone — the pilot already owns those.
+function devMaxTree(){
+  for(const n of TREE_NODES)if(nodeVisible(n)&&!nodeGranted(n.id))tree[n.id]=n.max;
+}
+// the cannon survives a clear: without it the bay draws its one-node first
+// screen, which has no way back out of it
+function devClearTree(){
+  for(const n of TREE_NODES)if(n.id!=='w:bow')delete tree[n.id];
+  tree['w:bow']=TREE_BY_ID['w:bow'].max;
+}
+// drop the run into any area, from the pause menu. It is a room change rather
+// than a portal, so everything in flight — hostiles, shots, mines, a warp that
+// was halfway through — is thrown away and the area is built clean.
+function devJumpToArea(room){
+  if(!state||state.over)return;
+  const target=clamp(Math.round(room)||1,1,FINAL_ROOM);
+  for(const list of [enemies,arrows,enemyBullets,particles,blasts,delayedBlasts,echoShots,damageNumbers,
+    strikes,rings,pulses,beams,mines,wells,rockets,walls,dashGhosts])list.length=0;
+  state.room=target;
+  state.victoryPortal=null;state.victorySequence=null;state.warp=null;state.portalArm=0;
+  state.transitioning=false;state.intermission=false;state.exit=null;state.vacuum=false;
+  state.cameraZoom=1;state.cameraRot=0;state.flash=0;state.screenAlpha=0;state.playerAlpha=1;
+  state.dying=0;state.hitStop=0;state.hurtFlash=0;state.history=[];
+  player.x=RW/2;player.y=RH/2;player.vx=0;player.vy=0;
+  confirmingEnd=false;
+  state.paused=false;hide();
+  beginRoom();
+  sfx('ui');toast('DEV JUMP — AREA '+target);
+}
+// a refit is a free level-up draw — exactly what FIELD REFIT buys, handed over
+// mid-run instead of at pre-flight. `n` of 0 clears the queue rather than adding.
+// hasDraw is recomputed because toggling nodes in the bay changes what the pool
+// can offer while the run is in the air, and a stale false would swallow every
+// refit granted here the moment it resumed.
+function devGrantRefits(n){
+  if(!state||state.over)return;
+  state.freeDraws=n?Math.max(0,(state.freeDraws||0)+n):0;
+  state.hasDraw=hasDraw();
+  sfx('ui');
+  toast(!state.hasDraw?'NOTHING LEFT TO DRAW — INSTALL MORE IN THE BAY'
+    :state.freeDraws?'REFITS PENDING — '+state.freeDraws+' (RESUME TO SPEND)'
+    :'REFITS CLEARED');
+  if(state.paused&&!state.upgradeOpen)openPauseMenu();   // repaint the pending count
 }
 function showDevPrompt(){
   show('<div class="modal dev-modal"><div class="eyebrow">DEVELOPER</div><h2>Enter password</h2>'
-    +'<p>Unlocks every pilot, lets you switch any overhaul on or off, and can force the mobile controls on a machine with a keyboard. Your saved profile is set aside while it is on, and handed straight back when you leave.</p>'
+    +'<p>Unlocks every pilot, lets you switch any overhaul on or off (or install the whole bay at once), jump a live run to any area and hand yourself free refits from the pause menu, and force the mobile controls on a machine with a keyboard. Your saved profile is set aside while it is on, and handed straight back when you leave.</p>'
     +'<input id="devPass" class="dev-input" type="password" autocomplete="off" spellcheck="false" placeholder="PASSWORD">'
     +'<div class="dev-msg" id="devMsg"></div>'
     +'<button class="continue" id="devGo">ENTER</button>'

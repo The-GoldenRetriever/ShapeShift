@@ -327,3 +327,18 @@ body.touch .rotate-tip{margin:7px 0 0;text-align:center;font:9px 'DM Mono',monos
 .dev-switch button:hover{border-color:#3c5f7d;color:#bcd4ee}
 .dev-switch button.on{border-color:#ff5fb0;color:#ff9ad2;box-shadow:0 0 14px #ff5fb033}
 .dev-switch i{font-style:normal;color:#4b5b74}
+/* dev-only: fill or empty the whole bay from the overhaul screen's top bar */
+.tree-bar .dev-actions{display:flex;gap:8px;margin-left:auto}
+.tree-bar .dev-actions button{background:#0f1626;border:1px solid #573055;color:#d79ec9;font:10px 'DM Mono',monospace;letter-spacing:.14em;padding:5px 11px;border-radius:4px}
+.tree-bar .dev-actions button:hover{border-color:#ff5fb0;color:#ff9ad2;box-shadow:0 0 14px #ff5fb033}
+/* dev-only: drop a live run into any area, from the pause menu */
+.dev-row{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:18px;padding-top:14px;border-top:1px solid #2a1c38;font:10px 'DM Mono',monospace;letter-spacing:.14em;color:#a276a4}
+.dev-row input{width:74px;background:#0c131f;border:1px solid #573055;border-radius:3px;color:#ffd3ee;font:11px 'DM Mono',monospace;letter-spacing:.1em;padding:5px 8px;text-align:center}
+.dev-row input:focus{outline:none;border-color:#ff5fb0}
+.dev-row button{background:#1a1122;border:1px solid #573055;color:#d79ec9;font:10px 'DM Mono',monospace;letter-spacing:.13em;padding:5px 12px;border-radius:3px}
+.dev-row button:hover{border-color:#ff5fb0;color:#ff9ad2}
+.dev-row .dev-quick{display:flex;gap:5px}
+.dev-row .dev-quick button{padding:5px 9px;color:#8798b3;border-color:#34455f}
+.dev-row em{flex-basis:100%;text-align:center;font-style:normal;color:#5d6b85;letter-spacing:.1em}
+/* dev-only: how many free refits are queued up on the pause menu */
+.dev-row .dev-count{color:#ffd3ee;letter-spacing:.13em}
