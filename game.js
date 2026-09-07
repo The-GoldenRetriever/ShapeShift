@@ -445,7 +445,13 @@ function abilityState(id){
 const fireAbility=id=>{if(id==='dash')dash();else if(id==='phase')phaseCloak();else shockPulse();};
 // the pads only exist while a run is actually being flown: not on a menu, not
 // mid-cinematic, not while the death fade is running
-const touchLive=()=>touchMode&&!!state&&inRun&&state.active&&!state.paused&&!state.over&&!state.dying&&!state.victorySequence;
+// deliberately NOT gated on state.active: that flag means "the room is still
+// fighting", and finishRoom clears it the moment the last shape dies. Gating
+// the stick on it took the controls away during the intermission — exactly when
+// you have to fly into the portal — with no way out of the area but parking the
+// run. The keyboard is live whenever update() runs, so this matches it: the run
+// is in the air, and nothing has taken control away from you.
+const touchLive=()=>touchMode&&!!state&&inRun&&!state.paused&&!state.over&&!state.dying&&!state.victorySequence;
 function releaseTouch(){stick.id=null;stick.active=false;stick.dx=0;stick.dy=0;for(const k in touchPress)delete touchPress[k];}
 function setTouchMode(on){
   touchMode=!!on;
