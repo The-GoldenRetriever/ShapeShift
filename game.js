@@ -125,7 +125,24 @@ const types = {
   stalker: { hp: 8,  speed: 40,  r: 18, color: '#ff9f4d', xp: 26, sides: 5, hold: 300 },
   bastion: { hp: 34, speed: 18,  r: 27, color: '#8ad6ff', xp: 34, sides: 6 },
   // outruns everything in the game, and folds to a single hit
-  dart:    { hp: 2,  speed: 330, r: 12, color: '#ff5fd2', xp: 16, sides: 3 }
+  dart:    { hp: 2,  speed: 330, r: 12, color: '#ff5fd2', xp: 16, sides: 3 },
+  // the screen: fast, moderately built, and it will not give you a clean shot at
+  // anything fragile. `guard` puts it on the line between you and its ward.
+  picket:  { hp: 24, speed: 175, r: 22, color: '#7cf2ff', xp: 42, sides: 5, guard: true },
+  // does not die so much as come apart — killing it is only half the job
+  splitter:{ hp: 22, speed: 46,  r: 25, color: '#ffe06b', xp: 34, sides: 6, splits: 3, splitInto: 'dart' },
+  // the RAKER's two upgrades. Same weapon; what changes is how long the lane it
+  // paints keeps burning, which is what turns the floor itself into the threat.
+  scorcher:{ hp: 18, speed: 22,  r: 23, color: '#ff8f4d', xp: 44, sides: 4, hold: 360 },
+  pyre:    { hp: 26, speed: 18,  r: 26, color: '#ff5c3d', xp: 58, sides: 5, hold: 400 },
+  // ---- SECTOR 02 bosses ---------------------------------------------------
+  // the drift holds its own rotation: none of the five fights the first sector
+  // trained you on comes back for the second
+  monolith: { hp: 400, speed: 26,  r: 88, color: '#ff7a4d', xp: 300, sides: 6 },
+  shrike:   { hp: 340, speed: 105, r: 46, color: '#ffd24d', xp: 320, sides: 3 },
+  breacher: { hp: 400, speed: 30,  r: 74, color: '#6dffb8', xp: 350, sides: 5 },
+  wraith:   { hp: 360, speed: 40,  r: 54, color: '#b26bff', xp: 380, sides: 4 },
+  leviathan:{ hp: 480, speed: 34,  r: 94, color: '#ff2f6a', xp: 520, sides: 8 }
 };
 // one boss per ten rooms, cycling once the roster is exhausted.
 // hpMult trades bulk against how dangerous each one's pattern is.
@@ -134,7 +151,12 @@ const bossOrder = [
   { id:'lance',    name:'LANCE',    hpMult:.78,  contact:34, blurb:'Charges hard, seeds homing orbs' },
   { id:'orbiter',  name:'ORBITER',  hpMult:1.18, contact:26, blurb:'Orbital strikes and a gravity tether' },
   { id:'beacon',   name:'BEACON',   hpMult:.95,  contact:24, blurb:'Sweeping beams, blinks away' },
-  { id:'hollow',   name:'HOLLOW',   hpMult:.86,  contact:30, blurb:'Shields itself, calls escorts, rings' }
+  { id:'hollow',   name:'HOLLOW',   hpMult:.86,  contact:30, blurb:'Shields itself, calls escorts, rings' },
+  // ---- the drift's rotation ------------------------------------------------
+  { id:'monolith', name:'MONOLITH', hpMult:2,    contact:34, blurb:'A wall of hull that fires from every face' },
+  { id:'shrike',   name:'SHRIKE',   hpMult:.85,  contact:26, blurb:'Fast hull, faster rounds' },
+  { id:'breacher', name:'BREACHER', hpMult:1.15, contact:38, blurb:'Slow? Be Ready' },
+  { id:'wraith',   name:'WRAITH',   hpMult:.85,  contact:24, blurb:'Blinks out, blinks in on top of you' }
 ];
 // ---- sectors ---------------------------------------------------------------
 // a sector is a whole run's worth of context: how steeply the curve climbs, which
@@ -152,7 +174,7 @@ const SECTORS=[
           band:'rgba(64,140,215,', rim:'#2a3d59', edge:'#55e6ff', haze:null } },
   { id:2, name:'CRIMSON DRIFT', short:'SECTOR 02', req:2,
     blurb:'A collapsed shipping lane, still burning. Nothing in it is a warm-up.',
-    line:'Opens where the first sector ends: heavier hulls, homing fire, and a curve that climbs half again as fast.',
+    line:'Opens where the first sector ends: heavier hulls, homing fire, five bosses you have never flown against, and a curve that climbs half again as fast.',
     hpBase:1.6, hpCurve:.055, wave:1.22, dmgCurve:.038, bossHp:1.5, bossCurve:.12,
     // it costs more to fly, so it pays more: better remnants in the air, and a
     // bigger bank at the end of it
@@ -173,19 +195,25 @@ const sector=()=>sectorDef(state&&state.sector?state.sector:chosenSector);
 const FINAL_ROOM=50;
 const MOTHERSHIP={ id:'mothership', name:'MOTHERSHIP', hpMult:1.15, contact:34,
   blurb:'Shells you from range, never stops launching' };
-// each sector holds its rotation in a different order, so the same five fights
-// arrive in a different sequence — and HOLLOW, which the first sector's cap keeps
-// out of reach, opens the second
+const LEVIATHAN={ id:'leviathan', name:'LEVIATHAN', hpMult:1.35, contact:36,
+  blurb:'Spirals the room shut, then opens up' };
+// every sector ends on a fight of its own, and none of them are on the rotation
+const SECTOR_FINALE={ 1:MOTHERSHIP, 2:LEVIATHAN };
+const finaleBoss=()=>SECTOR_FINALE[sector().id]||MOTHERSHIP;
+// a sector's rotation is its own: the drift shares no fight with the first
+// sector, finale included. Only the first four entries are ever reached — area 50
+// is the finale, off the rotation — so a rotation lists exactly what it uses,
+// except the first sector's HOLLOW, which its area-50 cap has always kept out of reach.
 const SECTOR_BOSSES={1:['sentinel','lance','orbiter','beacon','hollow'],
-                     2:['hollow','beacon','orbiter','lance','sentinel']};
+                     2:['monolith','shrike','breacher','wraith']};
 const bossRoster=()=>(SECTOR_BOSSES[sector().id]||SECTOR_BOSSES[1])
   .map(id=>bossOrder.find(b=>b.id===id));
 const bossForRoom = room => {
-  if(room===FINAL_ROOM)return MOTHERSHIP;
+  if(room===FINAL_ROOM)return finaleBoss();
   const roster=bossRoster();
   return roster[(Math.max(1,Math.floor(room/10))-1) % roster.length];
 };
-let player, enemies, arrows, enemyBullets, stars, particles, blasts, echoShots, damageNumbers, delayedBlasts, strikes, rings, pulses, beams, mines, wells, rockets, walls, state;
+let player, enemies, arrows, enemyBullets, stars, particles, blasts, echoShots, damageNumbers, delayedBlasts, strikes, rings, pulses, beams, mines, wells, rockets, walls, dashGhosts, state;
 // ---- roster -------------------------------------------------------------
 // hp/speed are multipliers on the 100hp / 288px-per-second baseline.
 // `weapon` grants a weapon nobody else can be offered.
@@ -248,6 +276,10 @@ function storeRun(){
     dashPower:state.dashPower, dashCd:state.dashCd, charXp:state.charXp, charDamage:state.charDamage,
     rateScale:state.rateScale, critChance:state.critChance, critMult:state.critMult, paidSkill:state.paidSkill||0,
     dashShear:state.dashShear||0, dashShove:!!state.dashShove,
+    // relic scalars: the stat relics are already banked in player/weapons above,
+    // but these four have nowhere else to live
+    enemyPace:state.enemyPace||1, armor:state.armor||1, siphon:state.siphon||0,
+    thorns:state.thorns||0, magnet:state.magnet||0,
     weapons:state.weapons, hp:player.hp, maxHp:player.maxHp, speed:player.speed, regen:player.regen };
   try{ localStorage.setItem(RUN_KEY,JSON.stringify(savedRun)); }catch(e){}
 }
@@ -264,6 +296,8 @@ function resumeRun(){
   state.charXp=r.charXp||1; state.charDamage=r.charDamage||1;
   state.rateScale=r.rateScale||1; state.critChance=r.critChance||0; state.critMult=r.critMult||1.3;
   state.dashShear=r.dashShear||0; state.dashShove=!!r.dashShove;
+  state.enemyPace=r.enemyPace||1; state.armor=r.armor||1; state.siphon=r.siphon||0;
+  state.thorns=r.thorns||0; state.magnet=r.magnet||0;
   state.paidSkill=r.paidSkill||0;
   state.sector=r.sector||1;
   state.freeDraws=0;   // a resumed run already spent its refits
@@ -329,6 +363,31 @@ const CONTACT_CAP = .7;
 const BOSS_SLAM = 2.2;          // bosses hit far harder than their nominal contact value
 const BOSS_CONTACT_CAP = .92;   // and are allowed much closer to a kill than anything else
 const HEAVY_SHAPES = ['trap','pentagon','bastion'];
+// the beam family: one weapon at three grades, and `life` — how long the lane
+// keeps burning once it lands — is the whole difference between them. A longer
+// burn is paid for with a longer reload, so the floor never fills faster than it
+// clears. BEAM_CAP is the hard stop that keeps a late room from becoming solid light.
+const BEAM_ENEMIES={
+  raker:   { lanes:[0],           life:3.4, len:620, warn:.85, damage:20, reload:[3.6,5.2] },
+  scorcher:{ lanes:[-.26,.26],    life:6.5, len:680, warn:.8,  damage:22, reload:[4.6,6.4] },
+  pyre:    { lanes:[-.42,0,.42],  life:9.5, len:740, warn:.75, damage:24, reload:[6,8.4]   }
+};
+const BEAM_CAP=15;
+// what a screen will cover: the fragile things that fight from a distance. It
+// will not screen another screen, and it will not chase one across the room.
+const GUARD_LEAD=150, GUARD_KEEP=175, GUARD_REACH=900;
+const wardable=e=>e.hp>0&&!e.boss&&!types[e.type].guard&&((types[e.type].hold||0)>0||!!BEAM_ENEMIES[e.type]);
+function guardWard(e){
+  // whichever ward *you* are closest to, since that is the one your guns are
+  // about to pick out of the crowd
+  let best=null,bestD=Infinity;
+  for(const o of enemies){
+    if(o===e||!wardable(o))continue;
+    const d=dist(player,o);
+    if(d<bestD&&dist(e,o)<GUARD_REACH){best=o;bestD=d;}
+  }
+  return best;
+}
 
 function resize() {
   // capped at 1.75 rather than 2: the arena grew 44%, this keeps the backing
@@ -447,8 +506,8 @@ function reset(difficulty = 'medium') {
   const c = characters[chosen] || characters[STARTER];
   const maxHp = Math.round(100 * c.hp);
   player = { x: RW / 2, y: RH / 2, r: 16, hp: maxHp, maxHp, speed: Math.round(288 * c.speed * treeSpeed()), regen: 3 + (c.regen || 0), hurtAt: -10, aim: 0, heading: 0, thrust: 0, vx: 0, vy: 0 };
-  enemies = []; arrows = []; enemyBullets = []; stars = []; particles = []; blasts = []; delayedBlasts = []; echoShots = []; damageNumbers = []; strikes = []; rings = []; pulses = []; beams = []; mines = []; wells = []; rockets = []; walls = [];
-  state = { difficulty, last: performance.now(), time: 0, room: 1, level: 1, xp: 0, need: 60, kills: 0, left: 0, spawnIn: 0, active: true, paused: false, upgradeOpen: false, intermission: false, transitioning: false, roomTransition: 0, exit: null, relicRooms: {}, globals: {}, relicsTaken: [], relicOpen: false, vacuum: false, beatBest: false, over: false, dying: 0, hitStop: 0, beatIn: 0, lowPulse: 0, knockX: 0, knockY: 0, knockT: 0, paidCredits: 0, portalArm: 0, history: [], echo: null, cloakTime: 0, cloakCooldown: 0, bowIn: 0, laserIn: 0, bombIn: 0, mineIn: 0, missileIn: 0, phalanxIn: 0, dashCooldown: 0, dashTime: 0, dashX: 0, dashY: 0, dashPower: 1, dashCd: 3, pulseCooldown: 0, pulseCd: 14, arcIn: 0, character: STARTER, charXp: 1, charDamage: 1, lastMoveX: 1, lastMoveY: 0, shake: 0, playerAlpha: 1, screenAlpha: 0, cameraZoom: 1, zoomCenterX: RW/2, zoomCenterY: RH/2, victoryPortal: null, victorySequence: null, victoryTimer: 0, roomBanner: null, cameraRot: 0, flash: 0, warp: null, suckR: 0, suckA: 0, suckDir: 1, portalCharge: 0, hurtFlash: 0, weapons: { bow: { name: 'VULCAN CANNON', color: '#55e6ff', damage: 2, rate: 1.3, level: 0, upgrades: 0, taken: [], ultimate: false } } };
+  enemies = []; arrows = []; enemyBullets = []; stars = []; particles = []; blasts = []; delayedBlasts = []; echoShots = []; damageNumbers = []; strikes = []; rings = []; pulses = []; beams = []; mines = []; wells = []; rockets = []; walls = []; dashGhosts = [];
+  state = { difficulty, last: performance.now(), time: 0, room: 1, level: 1, xp: 0, need: 60, kills: 0, left: 0, spawnIn: 0, active: true, paused: false, upgradeOpen: false, intermission: false, transitioning: false, roomTransition: 0, exit: null, relicRooms: {}, globals: {}, relicsTaken: [], relicOpen: false, relicDraw: null, enemyPace: 1, armor: 1, siphon: 0, thorns: 0, magnet: 0, vacuum: false, beatBest: false, over: false, dying: 0, hitStop: 0, beatIn: 0, lowPulse: 0, knockX: 0, knockY: 0, knockT: 0, paidCredits: 0, portalArm: 0, history: [], echo: null, cloakTime: 0, cloakCooldown: 0, bowIn: 0, laserIn: 0, bombIn: 0, mineIn: 0, missileIn: 0, phalanxIn: 0, dashCooldown: 0, dashTime: 0, dashX: 0, dashY: 0, dashPower: 1, dashCd: 3, pulseCooldown: 0, pulseCd: 14, arcIn: 0, character: STARTER, charXp: 1, charDamage: 1, lastMoveX: 1, lastMoveY: 0, shake: 0, playerAlpha: 1, screenAlpha: 0, cameraZoom: 1, zoomCenterX: RW/2, zoomCenterY: RH/2, victoryPortal: null, victorySequence: null, victoryTimer: 0, roomBanner: null, cameraRot: 0, flash: 0, warp: null, suckR: 0, suckA: 0, suckDir: 1, portalCharge: 0, hurtFlash: 0, weapons: { bow: { name: 'VULCAN CANNON', color: '#55e6ff', damage: 2, rate: 1.3, level: 0, upgrades: 0, taken: [], ultimate: false } } };
   state.sector=sectorOpen(chosenSector)?chosenSector:1;
   state.character=chosen;
   state.charXp=c.xp||1;
@@ -476,6 +535,18 @@ function newWeapon(id){
   const d=weaponData[id];
   return {name:d[0],color:d[1],damage:d[2],rate:d[3],level:0,upgrades:0,taken:[],ultimate:false};
 }
+// what a weapon *looks* like is read straight off what has been bolted onto it,
+// rather than tracked alongside it. `taken` is already saved with the run, so a
+// parked run repaints correctly on resume and the two can never fall out of sync.
+// Anything that outlives the shot — a mine, a wall, a blast — copies the flag it
+// needs at spawn, since by the time it is drawn the weapon is not in reach.
+const upg=(w,id)=>!!w&&w.taken.indexOf(id)>=0;
+// the one upgrade per weapon that changes how it *looks* as well as what it does.
+// Every draw reads this rather than naming an id inline, so re-tuning which
+// upgrade carries the look is a single edit here.
+const DMG_UPGRADE={bow:'bow-heavy',laser:'laser-focus',bomb:'bomb-impact',sword:'sword-sharp',
+  aegis:'aegis-power',arc:'arc-power',mine:'mine-power',missile:'missile-heavy',phalanx:'phalanx-power'};
+const heavyShot=id=>upg(state.weapons[id],DMG_UPGRADE[id]);
 const rand = (a,b) => a + Math.random() * (b-a);
 const dist = (a,b) => Math.hypot(a.x-b.x, a.y-b.y);
 const clamp = (n,a,b) => Math.max(a,Math.min(b,n));
@@ -544,7 +615,13 @@ const SECTOR_SPAWNS={
     {t:'pentagon', from:10, base: 9, growth:1.1 },
     {t:'prism',    from:11, base: 9, growth:1   },
     {t:'seeker',   from:13, base: 9, growth:1.2 },
-    {t:'raker',    from:16, base: 8, growth:1.25}
+    // the drift's signature: burning lanes underfoot, from early on and in numbers
+    {t:'raker',    from:6,  base:14, growth:1.25},
+    {t:'scorcher', from:18, base:12, growth:1.4 },
+    {t:'pyre',     from:28, base: 9, growth:1.55},
+    // and the things that make the lane-painters hard to reach
+    {t:'picket',   from:9,  base:12, growth:1.3 },
+    {t:'splitter', from:12, base:10, growth:1.1 }
   ]
 };
 function spawnWeights(room,mix){
@@ -608,7 +685,8 @@ function spawnBoss(){
   const def=bossForRoom(state.room), spec=types[def.id], difficulty=difficulties[state.difficulty];
   // each full pass through the roster adds a flat bulk bonus, so cycling back
   // to SENTINEL at room 60 is still tougher than HOLLOW at room 50
-  const cycle=Math.floor((Math.max(1,Math.floor(state.room/10))-1)/bossOrder.length);
+  const cycle=state.room===FINAL_ROOM?0
+    :Math.floor((Math.max(1,Math.floor(state.room/10))-1)/Math.max(1,bossRoster().length));
   const sec=sector();
   const hp=Math.ceil(spec.hp*def.hpMult*sec.bossHp*difficulty.hp*(1+Math.max(0,state.room-10)*sec.bossCurve)*(1+cycle*.75));
   enemies.push({type:def.id,bossId:def.id,contact:def.contact,x:RW/2,y:220,hp,maxHp:hp,r:spec.r,
@@ -643,6 +721,7 @@ function fire() {
       vx:Math.cos(a)*speed,vy:Math.sin(a)*speed,
       life:1.75,damage:w.damage,pierce:(w.pierce||0)+(w.ultimate?1:0),color:w.color,
       homing:1,turn:w.homing?12:6.5,tgt:target,
+      grade:w.taken.length+(w.ultimate?1:0),heavy:heavyShot('bow'),seeker:!!w.homing,
       seed:Math.floor(Math.random()*1000),
       homeIn:.05,
       lane:lane*.16      // each round curves in on its own line, closing well before impact
@@ -650,7 +729,7 @@ function fire() {
   }
   burst(nx,ny,w.color,4,70,{size:2,drag:6});sfx('shoot');
 }
-function hurt(n){if(state.cloakTime>0||state.dying>0)return;sfx('hurt');hitStop(n>=player.maxHp*.25?.07:0);player.hp=Math.max(0,player.hp-n);player.hurtAt=state.time;player.flash=0.1;state.hurtFlash=Math.min(1,(state.hurtFlash||0)+clamp(n/45,.3,1));burst(player.x,player.y,'#ff557d',10,150,{size:2.6,drag:4,spread:player.r});shake(12);}
+function hurt(n){if(state.cloakTime>0||state.dying>0)return;n*=state.armor||1;sfx('hurt');hitStop(n>=player.maxHp*.25?.07:0);player.hp=Math.max(0,player.hp-n);player.hurtAt=state.time;player.flash=0.1;state.hurtFlash=Math.min(1,(state.hurtFlash||0)+clamp(n/45,.3,1));burst(player.x,player.y,'#ff557d',10,150,{size:2.6,drag:4,spread:player.r});shake(12);if(state.thorns)staticDischarge();}
 function phaseCloak(){if(!state||!state.hasCloak||state.paused||state.victorySequence||state.cloakTime>0||state.cloakCooldown>0)return;state.cloakTime=3;state.cloakCooldown=12;burst(player.x,player.y,'#bca7ff',30,180);}
 // paragon only: the ultimate's clear-the-floor wave on a cooldown. It deals no
 // damage — it buys the second of space that a swarm was about to close.
@@ -672,14 +751,48 @@ function moveInput(){
   const l=Math.hypot(x,y)||1;
   return {x:x/l,y:y/l};
 }
+// what the dash is carrying. Each upgrade adds a layer to the animation rather
+// than replacing the last, so the dash itself reads as a readout of what has been
+// bought for it: a bare drive leaves silhouettes, coils tear a lane open behind
+// you, SHEAR DRIVE puts edges on it, and its second rank throws a bow shock ahead.
+const dashKit=()=>({
+  coils:(state.dashPower||1)>1,
+  shear:(state.dashShear||0)>0,
+  shove:!!state.dashShove
+});
+const dashTier=()=>{const k=dashKit();return (k.coils?1:0)+(k.shear?1:0)+(k.shove?1:0);};
+// how often the lane records a silhouette. Under a frame at 60Hz, so the trail is
+// solid there; on a faster panel it thins out to roughly the same spacing on the
+// floor rather than stacking silhouettes on top of each other.
+const DASH_GHOST_GAP=.008;
 function dash(){
   if(!state||!state.hasDash||state.paused||state.transitioning||state.victorySequence||(!state.exit&&state.intermission)||state.dashCooldown>0||state.dashTime>0)return;
   const aim=moveInput();
   let x=aim.x, y=aim.y;
   if(!x&&!y){x=state.lastMoveX;y=state.lastMoveY;}
-  const len=Math.hypot(x,y)||1;state.dashX=x/len;state.dashY=y/len;state.dashTime=.22;state.dashCooldown=state.dashCd||3;shake(4);sfx('dash');
+  const len=Math.hypot(x,y)||1;state.dashX=x/len;state.dashY=y/len;state.dashTime=.22;state.dashCooldown=state.dashCd||3;sfx('dash');
   state.dashHit=[];      // one shear per shape per dash, however long you are inside it
-  burst(player.x,player.y,pilotColor(),Math.round(24*(state.dashPower||1)),220*(state.dashPower||1));
+  const tier=dashTier();
+  shake(4+tier*2);
+  // the mark you launched off, which the ring and the plume are drawn from
+  state.dashBurst={x:player.x,y:player.y,a:Math.atan2(state.dashY,state.dashX),life:.42,max:.42};
+  burst(player.x,player.y,pilotColor(),Math.round(24*(state.dashPower||1))+tier*8,220*(state.dashPower||1)+tier*40);
+  if(tier>=2)burst(player.x,player.y,'#ffffff',10,180,{size:2.2,drag:3.4});
+}
+// the afterimages age on `dt`, so the lane stretches out under hit-stop the same
+// way everything else does
+function updateDashFx(dt){
+  if(state.dashTime>0){
+    state.ghostIn=(state.ghostIn||0)-dt;
+    if(state.ghostIn<=0){
+      const life=.26+dashTier()*.05;
+      dashGhosts.push({x:player.x,y:player.y,a:player.heading,life,max:life});
+      state.ghostIn=DASH_GHOST_GAP;
+    }
+  }
+  for(const g of dashGhosts)g.life-=dt;
+  dashGhosts=dashGhosts.filter(g=>g.life>0);
+  if(state.dashBurst){state.dashBurst.life-=dt;if(state.dashBurst.life<=0)state.dashBurst=null;}
 }
 // SHEAR DRIVE. The dash already passes through everything harmlessly; this makes
 // the pass cost the shape something, and at the second rank throws it sideways out
@@ -878,7 +991,7 @@ function update(dt,real) {
   // travel when nothing is in range — and throttles up while moving
   {
     const dashing=state.dashTime>0, sp=Math.hypot(player.vx,player.vy);
-    const wantThrust=dashing?1.6:(mx||my)?1:0;
+    const wantThrust=dashing?1.6+dashTier()*.2:(mx||my)?1:0;
     player.thrust+=(wantThrust-player.thrust)*Math.min(1,dt*10);
     const want=target?player.aim:dashing?Math.atan2(state.dashY,state.dashX):sp>30?Math.atan2(player.vy,player.vx):null;
     if(want!==null){
@@ -893,7 +1006,7 @@ function update(dt,real) {
   if(state.active&&state.left>0){state.spawnIn-=dt;if(state.spawnIn<=0){spawn();state.left--;state.spawnIn=Math.max(.16,(.55-state.room*.02)/((difficulties[state.difficulty]||difficulties.medium).mass||1));}}
   state.bowIn-=dt;if(state.bowIn<=0){fire();state.bowIn=1/state.weapons.bow.rate;}
   for(const e of enemies) moveEnemy(e,dt);
-  weapons(dt); updateArrows(dt); updateRockets(dt); updateWalls(dt); updateEchoShots(dt); updateEnemyBullets(dt); updateStars(dt); deaths(); updateParticles(dt); updateBlasts(dt); updateDelayedBlasts(dt); updateMines(dt); updateWells(dt); updateStrikes(dt); updateRings(dt); updatePulses(dt); updateBeams(dt); updateDamageNumbers(dt);
+  weapons(dt); updateArrows(dt); updateRockets(dt); updateWalls(dt); updateEchoShots(dt); updateEnemyBullets(dt); updateStars(dt); deaths(); updateParticles(dt); updateBlasts(dt); updateDelayedBlasts(dt); updateMines(dt); updateWells(dt); updateStrikes(dt); updateRings(dt); updatePulses(dt); updateBeams(dt); updateDashFx(dt); updateDamageNumbers(dt);
   if(state.active&&state.left===0&&enemies.length===0) finishRoom();
   if(player.hp<=0&&!state.dying&&!state.over){
     state.dying=1.05;
@@ -1039,6 +1152,158 @@ const bossBehaviour={
       }
       if(e.timer<=0){e.mode='shield';e.timer=0;e.adds=0;}
     }
+  },
+  // ---- SECTOR 02 -----------------------------------------------------------
+  // area 10 — a damage check with the hull to back it up. It barely closes; what
+  // it does is fill the room with radial fire, so the fight is reading the gaps
+  // rather than dodging the boss itself.
+  monolith(e,dt,difficulty,spec,a){
+    bossStep(e,dt,1,difficulty,a);
+    e.timer-=dt;
+    if(e.mode==='idle'){e.mode='rest';e.timer=1.6;}
+    if(e.mode==='rest'){
+      // an aimed three-shot between bursts, so standing off it is not free either
+      e.potIn=(e.potIn||0)-dt;
+      if(e.potIn<=0){
+        for(const off of [-.18,0,.18])
+          enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(a+off)*250,vy:Math.sin(a+off)*250,r:7,life:5,damage:13*difficulty.dmg,color:spec.color});
+        sfx('shoot');e.potIn=1.5;
+      }
+      if(e.timer<=0){e.mode='wind';e.timer=1;e.spin=Math.random()*Math.PI*2;}
+    }else if(e.mode==='wind'){
+      e.flash=Math.max(e.flash,.05);
+      if(e.timer<=0){e.mode='burst';e.timer=0;e.wave=0;shake(6);}
+    }else if(e.mode==='burst'){
+      if(e.timer<=0){
+        // three waves, each rotated half a gap off the last: the lane that was
+        // safe a moment ago is the one the next wave fires down
+        const n=16, half=Math.PI/n;
+        for(let i=0;i<n;i++){
+          const ba=e.spin+i*Math.PI*2/n+(e.wave%2?half:0);
+          enemyBullets.push({x:e.x+Math.cos(ba)*e.r*.8,y:e.y+Math.sin(ba)*e.r*.8,
+            vx:Math.cos(ba)*205,vy:Math.sin(ba)*205,r:7,life:6,damage:14*difficulty.dmg,color:spec.color});
+        }
+        burst(e.x,e.y,spec.color,16,240,{size:2.8,drag:3});sfx('shoot');shake(4);
+        e.wave++;e.timer=.42;
+        if(e.wave>=3){e.mode='rest';e.timer=rand(1.9,2.6);}
+      }
+    }
+  },
+  // area 20 — the fastest hull in the drift firing the fastest rounds in it. It
+  // rides a strafing band spitting paired shots, then commits to a raking pass
+  // that lays fire out of both flanks instead of ahead of it.
+  shrike(e,dt,difficulty,spec,a){
+    e.timer-=dt;
+    if(e.mode==='idle'){e.mode='strafe';e.timer=rand(2,3.2);}
+    if(e.mode==='strafe'){
+      const d=dist(e,player), orbit=e.orbit||(e.orbit=Math.random()<.5?-1:1);
+      if(d>430)bossStep(e,dt,1.6,difficulty,a);
+      else if(d<300)bossStep(e,dt,1.2,difficulty,a+Math.PI);
+      else bossStep(e,dt,1.7,difficulty,a+orbit*Math.PI/2);
+      e.potIn=(e.potIn||0)-dt;
+      if(e.potIn<=0){
+        for(const off of [-.07,.07])
+          enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(a+off)*470,vy:Math.sin(a+off)*470,r:5,life:4,damage:11*difficulty.dmg,color:spec.color});
+        sfx('shoot');e.potIn=.5;
+      }
+      if(e.timer<=0){e.mode='wind';e.timer=.4;e.lockA=a;}
+    }else if(e.mode==='wind'){
+      e.lockA=a;e.flash=Math.max(e.flash,.05);   // it tracks right up to the launch
+      if(e.timer<=0){e.mode='pass';e.timer=.55;e.passIn=0;burst(e.x,e.y,spec.color,14,220,{size:2.6,drag:2.6});sfx('dash');}
+    }else if(e.mode==='pass'){
+      bossStep(e,dt,4.2,difficulty,e.lockA);
+      burst(e.x,e.y,spec.color,2,120);
+      e.passIn=(e.passIn||0)-dt;
+      if(e.passIn<=0){
+        for(const side of [-1,1])
+          enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(e.lockA+side*Math.PI/2)*400,vy:Math.sin(e.lockA+side*Math.PI/2)*400,r:5,life:3.4,damage:10*difficulty.dmg,color:spec.color});
+        e.passIn=.14;
+      }
+      if(e.timer<=0){e.mode='strafe';e.timer=rand(1.8,2.8);e.orbit=Math.random()<.5?-1:1;}
+    }
+  },
+  // area 30 — "Slow? Be Ready". It crawls, and then it does not. The lunge is
+  // telegraphed and juke-able; what actually kills you is the burst it sheds the
+  // moment it stops, so the safe ground is behind it, not away from it.
+  breacher(e,dt,difficulty,spec,a){
+    e.timer-=dt;
+    if(e.mode==='idle'){e.mode='creep';e.timer=rand(1.4,2.2);}
+    if(e.mode==='creep'){
+      bossStep(e,dt,1,difficulty,a);
+      if(e.timer<=0){e.mode='aim';e.timer=.85;e.lockA=a;}
+    }else if(e.mode==='aim'){
+      let d=a-e.lockA;while(d<-Math.PI)d+=Math.PI*2;while(d>Math.PI)d-=Math.PI*2;
+      e.lockA+=d*Math.min(1,dt*1.1);
+      e.flash=Math.max(e.flash,.05);
+      if(e.timer<=0){e.mode='lunge';e.timer=.5;shake(7);sfx('dash');burst(e.x,e.y,spec.color,20,260,{size:3,drag:2.4});}
+    }else if(e.mode==='lunge'){
+      bossStep(e,dt,13,difficulty,e.lockA);
+      burst(e.x,e.y,spec.color,3,150,{size:2.8,drag:3});
+      if(e.timer<=0){
+        e.mode='slam';e.timer=.95;
+        const n=18, spin=Math.random()*Math.PI*2;
+        for(let i=0;i<n;i++){
+          const ba=spin+i*Math.PI*2/n;
+          enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(ba)*265,vy:Math.sin(ba)*265,r:7,life:5,damage:15*difficulty.dmg,color:spec.color});
+        }
+        rings.push({x:e.x,y:e.y,r:e.r,speed:430*difficulty.speed,damage:18*difficulty.dmg,life:1.7,color:spec.color});
+        shake(14);hitStop(.05);sfx('boom');burst(e.x,e.y,spec.color,30,340,{size:3.2,drag:2.6});
+      }
+    }else if(e.mode==='slam'){
+      if(e.timer<=0){e.mode='creep';e.timer=rand(1.3,2.1);}
+    }
+  },
+  // area 40 — never where you last shot at it. It blinks off a wound, blinks in
+  // on top of you to empty a clip, and blinks straight back out. Damage has to be
+  // spent the moment it arrives, because standing on it is what sends it away.
+  wraith(e,dt,difficulty,spec,a){
+    const blink=(x,y)=>{
+      burst(e.x,e.y,spec.color,22,240,{size:2.8,drag:2.6});
+      e.ghostX=e.x;e.ghostY=e.y;e.ghost=.4;      // the afterimage it leaves behind
+      e.x=clamp(x,e.r,RW-e.r);e.y=clamp(y,e.r,RH-e.r);
+      burst(e.x,e.y,spec.color,22,240,{size:2.8,drag:2.6});
+      sfx('dash');
+    };
+    e.ghost=Math.max(0,(e.ghost||0)-dt);
+    e.dodgeCd=(e.dodgeCd||0)-dt;
+    e.timer-=dt;
+    if(e.mark===undefined)e.mark=e.hp;
+    // it will not stand and take fire: enough damage in one place and it is gone.
+    // mid-ambush it commits, so the window it hands you is a real one.
+    if(e.hp<e.mark-e.maxHp*.06&&e.dodgeCd<=0&&e.mode!=='strike'){
+      const ba=Math.random()*Math.PI*2;
+      blink(player.x+Math.cos(ba)*rand(360,520),player.y+Math.sin(ba)*rand(360,520));
+      e.mark=e.hp;e.dodgeCd=1.7;
+    }
+    if(e.mode==='idle'){e.mode='drift';e.timer=rand(1.6,2.6);}
+    if(e.mode==='drift'){
+      const orbit=e.orbit||(e.orbit=Math.random()<.5?-1:1);
+      bossStep(e,dt,.9,difficulty,a+orbit*Math.PI/2);
+      e.potIn=(e.potIn||0)-dt;
+      if(e.potIn<=0){
+        enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(a)*480,vy:Math.sin(a)*480,r:6,life:4,damage:12*difficulty.dmg,color:spec.color});
+        sfx('shoot');e.potIn=.75;
+      }
+      if(e.timer<=0){
+        const ba=Math.random()*Math.PI*2;
+        blink(player.x+Math.cos(ba)*rand(150,215),player.y+Math.sin(ba)*rand(150,215));
+        e.mode='strike';e.timer=.8;e.shots=0;e.shotIn=.2;e.mark=e.hp;
+      }
+    }else if(e.mode==='strike'){
+      e.shotIn-=dt;
+      if(e.shotIn<=0&&(e.shots||0)<3){
+        const b=ang(e,player);
+        for(const off of [-.16,0,.16])
+          enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(b+off)*440,vy:Math.sin(b+off)*440,r:6,life:3.6,damage:12*difficulty.dmg,color:spec.color});
+        e.shots=(e.shots||0)+1;e.shotIn=.2;sfx('shoot');
+      }
+      if(e.timer<=0){
+        // it leaves inside the view — hopping across the room would turn the
+        // fight into a walk, and it cannot be shot where it cannot be seen
+        blink(camX+rand(190,W-190),camY+rand(160,H-160));
+        e.mode='drift';e.timer=rand(1.7,2.7);e.mark=e.hp;e.orbit=Math.random()<.5?-1:1;
+      }
+    }
   }
 };
 // how the carrier fights: it holds this far out, keeps this many launches in the
@@ -1083,6 +1348,66 @@ bossBehaviour.mothership=function(e,dt,difficulty,spec,a){
     e.gunFlash=.3;e.shellIn=rand(2.6,3.4);
   }
   e.gunFlash=Math.max(0,(e.gunFlash||0)-dt);
+};
+// area 50 in the drift — what the second sector has been building toward. It
+// cycles three patterns that deny different ground: a rotating fountain you walk
+// the gaps of, a closing volley phase, and a wind-up that pays out in rings. At
+// half hull it stops taking turns and runs all three harder.
+bossBehaviour.leviathan=function(e,dt,difficulty,spec,a){
+  const rage=e.hp<=e.maxHp*.5;
+  if(rage&&!e.raged){
+    e.raged=true;
+    shake(20);hitStop(.08);sfx('boss');state.flash=Math.max(state.flash,.3);
+    burst(e.x,e.y,spec.color,50,420,{size:3.4,drag:2.4});
+    rings.push({x:e.x,y:e.y,r:e.r,speed:520*difficulty.speed,damage:20*difficulty.dmg,life:2,color:'#ffffff'});
+  }
+  e.timer-=dt;
+  if(e.mode==='idle'){e.mode='spiral';e.timer=5;e.spin=0;}
+  if(e.mode==='spiral'){
+    // it barely moves while the fountain turns: the room is the pattern, and
+    // standing still anywhere in it is what kills you
+    bossStep(e,dt,.5,difficulty,a);
+    e.spin+=dt*(rage?2.4:1.6);
+    e.spiralIn=(e.spiralIn||0)-dt;
+    if(e.spiralIn<=0){
+      const arms=rage?4:2;
+      for(let i=0;i<arms;i++){
+        const ba=e.spin+i*Math.PI*2/arms;
+        enemyBullets.push({x:e.x+Math.cos(ba)*e.r*.7,y:e.y+Math.sin(ba)*e.r*.7,
+          vx:Math.cos(ba)*235,vy:Math.sin(ba)*235,r:6,life:6,damage:12*difficulty.dmg,color:spec.color});
+      }
+      e.spiralIn=.08;
+    }
+    if(e.timer<=0){e.mode='hunt';e.timer=rage?3:3.8;}
+  }else if(e.mode==='hunt'){
+    bossStep(e,dt,1.6,difficulty,a);
+    e.potIn=(e.potIn||0)-dt;
+    if(e.potIn<=0){
+      for(const off of [-.22,0,.22])
+        enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(a+off)*300,vy:Math.sin(a+off)*300,r:7,life:5,damage:14*difficulty.dmg,color:spec.color});
+      if(rage)bossOrb(e,a,215*difficulty.speed,13*difficulty.dmg);   // and one that follows you home
+      sfx('shoot');e.potIn=rage?.9:1.3;
+    }
+    if(e.timer<=0){e.mode='nova';e.timer=1.15;}
+  }else if(e.mode==='nova'){
+    bossStep(e,dt,.2,difficulty,a);
+    e.flash=Math.max(e.flash,.05);
+    e.charge=clamp(1-e.timer/1.15,0,1);           // the wind-up the art draws
+    if(e.timer<=0){e.mode='pulse';e.timer=0;e.waves=0;shake(10);}
+  }else if(e.mode==='pulse'){
+    e.charge=0;
+    if(e.timer<=0){
+      rings.push({x:e.x,y:e.y,r:e.r,speed:400*difficulty.speed,damage:20*difficulty.dmg,life:2.4,color:spec.color});
+      const n=rage?14:10, spin=Math.random()*Math.PI*2;
+      for(let i=0;i<n;i++){
+        const ba=spin+i*Math.PI*2/n;
+        enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(ba)*225,vy:Math.sin(ba)*225,r:7,life:6,damage:13*difficulty.dmg,color:spec.color});
+      }
+      burst(e.x,e.y,spec.color,22,300,{size:3,drag:2.6});sfx('boom');shake(6);
+      e.waves=(e.waves||0)+1;e.timer=.45;
+      if(e.waves>=(rage?3:2)){e.mode='spiral';e.timer=rage?4:5;}
+    }
+  }
 };
 function spawnAt(name,x,y){
   const spec=types[name];if(!spec)return null;
@@ -1202,7 +1527,7 @@ function updateRings(dt){
   }
   rings=rings.filter(r=>r.life>0&&r.r<Math.hypot(RW,RH));
 }
-const slowFactor=e=>e.slowT>0?1-(e.slowAmt||0):1;
+const slowFactor=e=>(e.slowT>0?1-(e.slowAmt||0):1)*(state.enemyPace||1);
 function moveEnemy(e,dt) {
   const difficulty=difficulties[state.difficulty], spec=types[e.type], a=ang(e,player);
 
@@ -1210,7 +1535,23 @@ function moveEnemy(e,dt) {
     (bossBehaviour[e.bossId]||bossBehaviour.sentinel)(e,dt,difficulty,spec,a);
   }else{
     const s=spec.speed*difficulty.speed*MOVE*slowFactor(e);
-    const d=dist(e,player)||1, ux=(player.x-e.x)/d, uy=(player.y-e.y)/d, tx=-uy, ty=ux;
+    // everything steers toward you; a screen steers toward a point instead — a
+    // little in front of whatever it is covering, on the line between you and it.
+    // It does not block your shots, it just makes itself the nearest thing you
+    // can see, which is all it takes for your guns to pick it first.
+    let aimX=player.x, aimY=player.y;
+    if(spec.guard){
+      const ward=e.ward=guardWard(e);
+      if(ward){
+        const wd=dist(player,ward)||1;
+        // never closer to you than GUARD_KEEP: a screen that walks into your hull
+        // has traded itself for nothing
+        const lead=Math.min(GUARD_LEAD,Math.max(0,wd-GUARD_KEEP));
+        aimX=ward.x+(player.x-ward.x)/wd*lead;
+        aimY=ward.y+(player.y-ward.y)/wd*lead;
+      }
+    }
+    const d=Math.hypot(aimX-e.x,aimY-e.y)||1, ux=(aimX-e.x)/d, uy=(aimY-e.y)/d, tx=-uy, ty=ux;
     const hold=spec.hold||0;
     let fx=0,fy=0;
     // gunboats hold a standoff range and strafe; everything else closes in
@@ -1226,8 +1567,8 @@ function moveEnemy(e,dt) {
       if(dd<gap){const p=(gap-dd)/gap;fx+=dx/dd*p*2.4;fy+=dy/dd*p*2.4;}
       else if(dd<210){const side=(dx*tx+dy*ty)>=0?1:-1, w=(1-dd/210)*.9;fx+=tx*side*w;fy+=ty*side*w;}
     }
-    const fl=Math.hypot(fx,fy)||1;
-    e.x=clamp(e.x+fx/fl*s*dt,e.r,RW-e.r);e.y=clamp(e.y+fy/fl*s*dt,e.r,RH-e.r);
+    const fl=Math.hypot(fx,fy)||1, sp=spec.guard?s*clamp(d/45,.2,1):s;
+    e.x=clamp(e.x+fx/fl*sp*dt,e.r,RW-e.r);e.y=clamp(e.y+fy/fl*sp*dt,e.r,RH-e.r);
   }
 
   if(e.kt>0){
@@ -1252,7 +1593,9 @@ function moveEnemy(e,dt) {
       if(e.boss){
         // a boss body is not something you brush past
         if(state.difficulty==='impossible'){
-          hurt(player.hp);
+          // the one-shot is the rule of the difficulty, not a damage number:
+          // ABLATIVE PLATING is undone here so it still kills outright
+          hurt(player.hp/(state.armor||1));
         }else{
           const raw=(e.contact||28)*BOSS_SLAM*(1+(state.room-1)*sector().dmgCurve)*difficulty.dmg*mitigation;
           hurt(Math.min(raw,player.maxHp*BOSS_CONTACT_CAP));
@@ -1289,12 +1632,16 @@ function moveEnemy(e,dt) {
       damage:(9+state.room*.3)*difficulty.dmg,homing:1,turn:3.1,color:spec.color,keep:true});
     e.shoot=rand(1.8,2.9);
   }
-  if(e.type==='raker'&&e.shoot<=0){
-    // paints a lane across the floor that lingers; you dash through it
-    const b=ang(e,player);
-    beams.push({x:e.x,y:e.y,a:b,len:620,warn:.85,life:3.4,maxLife:3.4,hit:0,
-      damage:20*difficulty.dmg,color:spec.color});
-    e.shoot=rand(3.6,5.2);
+  const beamKind=BEAM_ENEMIES[e.type];
+  if(beamKind&&e.shoot<=0){
+    // paints lanes across the floor that linger; you dash through them
+    if(beams.length+beamKind.lanes.length<=BEAM_CAP){   // a volley lands whole or not at all
+      const b=ang(e,player);
+      for(const lane of beamKind.lanes)
+        beams.push({x:e.x,y:e.y,a:b+lane,len:beamKind.len,warn:beamKind.warn,
+          life:beamKind.life,maxLife:beamKind.life,hit:0,damage:beamKind.damage*difficulty.dmg,color:spec.color});
+      e.shoot=rand(beamKind.reload[0],beamKind.reload[1]);
+    }else e.shoot=.6;   // floor is full: check back shortly rather than dumping the moment it clears
   }
   // the SENTINEL volley, at three scales: the boss, the fighter built on its
   // pattern, and the bowtie's single pot-shot
@@ -1322,7 +1669,7 @@ function weapons(dt) {
       state.laserIn=1/w.rate;
     }
   }
-  if(state.weapons.bomb){state.bombIn-=dt;if(state.bombIn<=0){const w=state.weapons.bomb,t=nearest();if(t)detonate(w,t.x,t.y,w.radius||135,w.damage,w.double?{timer:.75,damage:w.damage*.55}:null);state.bombIn=1/w.rate;}}
+  if(state.weapons.bomb){state.bombIn-=dt;if(state.bombIn<=0){const w=state.weapons.bomb,t=nearest();if(t)detonate(w,t.x,t.y,w.radius||135,w.damage,w.double?{timer:.75,damage:w.damage*.55}:null,heavyShot('bomb'));state.bombIn=1/w.rate;}}
   if(state.weapons.missile){
     const w=state.weapons.missile;
     state.missileIn-=dt;
@@ -1474,13 +1821,15 @@ function hitLaser(w,e,secondary){
   burst(e.x,e.y,'#c879ff',6,110,{size:2.2,drag:4.5});
   if(!secondary){w.beamT=.14;w.bx=e.x;w.by=e.y;w.nova=null;shake(1);sfx('laser');}
 }
-function detonate(w,x,y,radius,damage,followUp){
+// `heavy` is passed rather than looked up: the same crater is made by the torpedo
+// and by a WARHEAD SALVO rocket, and each has its own upgrade behind it
+function detonate(w,x,y,radius,damage,followUp,heavy){
   for(const e of enemies)if(dist(e,{x,y})<radius){
     const h=critHit(damage);
     e.hp-=h.dmg;e.flash=h.crit?.26:.18;
     spawnDamageNumber(e.x,e.y,Math.ceil(h.dmg),w.color,h.crit);
   }
-  blasts.push({x,y,radius,life:.42,maxLife:.42,color:w.color});
+  blasts.push({x,y,radius,life:.42,maxLife:.42,color:w.color,heavy:!!heavy});
   burst(x,y,w.color,26,240,{size:3.2,drag:2.6});
   burst(x,y,'#fff2d6',10,120,{size:2.2,drag:4});
   shake(8);hitStop(.045);sfx('boom');
@@ -1529,7 +1878,7 @@ function updateWells(dt){
 function spawnMine(w,x,y){
   const hold=w.hold||1.5;
   mines.push({x,y,armT:.4,holdT:hold,holdT0:hold,radius:w.radius||160,damage:w.damage,pullForce:w.pullForce||230,color:w.color,crush:w.crush,cap:w.cap||MINE_CAP,held:0,
-    chain:w.ultimate?2:0});   // SINGULARITY COLLAPSE: the wreckage blinks back and detonates twice more
+    heavy:heavyShot('mine'),chain:w.ultimate?2:0});   // SINGULARITY COLLAPSE: the wreckage blinks back and detonates twice more
 }
 function updateMines(dt){
   for(const m of mines){
@@ -1565,7 +1914,7 @@ function updateMines(dt){
       burst(m.x,m.y,m.color,30,260,{size:3,drag:2.4});
       burst(m.x,m.y,'#ffffff',14,190,{size:2.2,drag:3.2});
       shake(9);hitStop(.05);sfx('boom');
-      if(m.chain>0)mines.push({x:m.x,y:m.y,armT:.25,holdT:m.holdT0,holdT0:m.holdT0,radius:m.radius,damage:m.damage,pullForce:m.pullForce,color:m.color,crush:m.crush,cap:m.cap,held:0,chain:m.chain-1});
+      if(m.chain>0)mines.push({x:m.x,y:m.y,armT:.25,holdT:m.holdT0,holdT0:m.holdT0,radius:m.radius,damage:m.damage,pullForce:m.pullForce,color:m.color,crush:m.crush,cap:m.cap,held:0,heavy:m.heavy,chain:m.chain-1});
       m.dead=true;
     }
   }
@@ -1577,7 +1926,7 @@ function updateMines(dt){
 // launch can still be missed — the trade for how hard it lands.
 function spawnRocket(w,a,speed,spread){
   rockets.push({x:player.x,y:player.y,vx:Math.cos(a)*speed,vy:Math.sin(a)*speed,
-    a,life:2.6,damage:w.damage,radius:w.radius||150,color:w.color,
+    a,life:2.6,damage:w.damage,radius:w.radius||150,color:w.color,heavy:heavyShot('missile'),
     cluster:!!w.cluster,turn:spread?1.1:2.3,drift:spread||0});
 }
 function updateRockets(dt){
@@ -1596,7 +1945,7 @@ function updateRockets(dt){
     const hit=enemies.find(e=>liveTarget(e)&&dist(r,e)<e.r+9);
     if(hit||r.life<=0||r.x<0||r.x>RW||r.y<0||r.y>RH){
       if(w)detonate(w,clamp(r.x,0,RW),clamp(r.y,0,RH),r.radius,r.damage,
-        r.cluster?{timer:.55,damage:r.damage*.45}:null);
+        r.cluster?{timer:.55,damage:r.damage*.45}:null,r.heavy);
       if(r.cluster&&w)for(let i=0;i<3;i++){
         const ca=Math.random()*Math.PI*2, cd=r.radius*.7;
         delayedBlasts.push({x:clamp(r.x+Math.cos(ca)*cd,0,RW),y:clamp(r.y+Math.sin(ca)*cd,0,RH),
@@ -1610,13 +1959,21 @@ function updateRockets(dt){
 function drawRockets(){
   ctx.save();
   for(const r of rockets){
-    const dir=Math.atan2(r.vy,r.vx);
+    const dir=Math.atan2(r.vy,r.vx), sz=r.heavy?1.45:1;
     ctx.save();ctx.translate(r.x,r.y);ctx.rotate(dir);
     ctx.globalCompositeOperation='lighter';
-    ctx.globalAlpha=.5;ctx.fillStyle='#ff7a2a';flameTongue(-4,0,Math.PI,26,4.4);
+    ctx.globalAlpha=.5;ctx.fillStyle='#ff7a2a';flameTongue(-4,0,Math.PI,26*sz,4.4*sz);
+    if(r.heavy){
+      // HEAVY WARHEAD: more missile, and a plume that says so
+      ctx.globalAlpha=.55;ctx.fillStyle='#ffd9a8';flameTongue(-4,0,Math.PI,15*sz,2.2*sz);
+    }
     ctx.globalCompositeOperation='source-over';
-    ctx.globalAlpha=1;ctx.fillStyle='#ffe6cf';ctx.shadowColor=r.color;ctx.shadowBlur=12;
-    ctx.beginPath();ctx.moveTo(13,0);ctx.lineTo(-5,5);ctx.lineTo(-2,0);ctx.lineTo(-5,-5);ctx.closePath();ctx.fill();
+    ctx.globalAlpha=1;ctx.fillStyle='#ffe6cf';ctx.shadowColor=r.color;ctx.shadowBlur=12+(r.heavy?8:0);
+    ctx.beginPath();ctx.moveTo(13*sz,0);ctx.lineTo(-5*sz,5*sz);ctx.lineTo(-2*sz,0);ctx.lineTo(-5*sz,-5*sz);ctx.closePath();ctx.fill();
+    if(r.heavy){   // a banded warhead collar behind the nose
+      ctx.shadowBlur=0;ctx.fillStyle=r.color;
+      ctx.beginPath();ctx.moveTo(5*sz,0);ctx.lineTo(0,3.4*sz);ctx.lineTo(0,-3.4*sz);ctx.closePath();ctx.fill();
+    }
     ctx.shadowBlur=0;ctx.restore();
   }
   ctx.restore();
@@ -1633,7 +1990,7 @@ function spawnWall(w,a,recall){
   const life=back?WALL_LEG*2:WALL_LEG;
   walls.push({x:player.x,y:player.y,a,span:w.span||200,speed:WALL_SPEED,
     damage:w.damage,push:(w.push||1)*1100,color:w.color,life,maxLife:life,
-    recall:back,stun:!!w.ultimate,hit:[]});
+    heavy:heavyShot('phalanx'),recall:back,stun:!!w.ultimate,hit:[]});
 }
 function updateWalls(dt){
   for(const wl of walls){
@@ -1674,13 +2031,25 @@ function drawPhalanx(){
     g.addColorStop(0,rgba(wl.color,0));
     g.addColorStop(.5,rgba(wl.color,.55*k+.2));
     g.addColorStop(1,rgba(wl.color,0));
-    ctx.fillStyle=g;ctx.fillRect(-9,-h,18,h*2);
+    const th=wl.heavy?15:9;
+    ctx.fillStyle=g;ctx.fillRect(-th,-h,th*2,h*2);
     ctx.globalAlpha=.75*k;
-    ctx.strokeStyle='#ffffff';ctx.lineWidth=2;
+    ctx.strokeStyle='#ffffff';ctx.lineWidth=wl.heavy?3.5:2;
     ctx.beginPath();ctx.moveTo(0,-h*.92);ctx.lineTo(0,h*.92);ctx.stroke();
     // a leading edge that reads as a shove rather than a beam
     ctx.globalAlpha=.35*k;ctx.strokeStyle=wl.color;ctx.lineWidth=6;
     ctx.beginPath();ctx.arc(0,0,h*1.02,-1.05,1.05);ctx.stroke();
+    if(wl.heavy){
+      // KINETIC MASS: the slab gets a hard face, and ribs across it, so it reads
+      // as something with weight behind it rather than a sheet of light
+      ctx.globalAlpha=.8*k;ctx.strokeStyle='#ffffff';ctx.lineWidth=2.5;
+      ctx.beginPath();ctx.arc(0,0,h*1.02,-1.05,1.05);ctx.stroke();
+      ctx.globalAlpha=.4*k;ctx.strokeStyle=wl.color;ctx.lineWidth=3;
+      for(let i=-2;i<=2;i++){
+        const y=i*h*.34;
+        ctx.beginPath();ctx.moveTo(-th,y);ctx.lineTo(th*1.6,y);ctx.stroke();
+      }
+    }
     ctx.restore();
   }
   ctx.restore();
@@ -1769,7 +2138,7 @@ function updateStars(dt) {
       if(Math.hypot(s.vx,s.vy)<12){s.vx=0;s.vy=0;}
     }
     const d=dist(s,player);
-    const k=state.vacuum?17:d<250?12:0;
+    const k=state.vacuum?17:d<(state.magnet?1250:250)?12:0;
     if(k){s.x+=(player.x-s.x)*dt*k;s.y+=(player.y-s.y)*dt*k;}
     if(d<32){state.xp+=s.value;s.dead=true;sfx('pip');burst(s.x,s.y,'#ffe17a',7,130,{size:2.2,drag:5});}
   }
@@ -1785,11 +2154,15 @@ function deaths(){
       if(e.hp<e.shieldHp){e.deflect=.2;e.hp=e.shieldHp;}   // shots bounce off entirely
     }else if(e.shieldHp!==undefined)e.shieldHp=undefined;
   }
-  const alive=[];
+  const alive=[], shards=[];
   for(const e of enemies){
     if(e.hp>0){alive.push(e);continue;}
     const sp=types[e.type];
+    // shrapnel is queued rather than spawned here: the sweep below reassigns
+    // `enemies`, and anything pushed mid-loop would be walked over by it
+    if(sp.splits&&!e.split)shards.push({sp,x:e.x,y:e.y,r:e.r});
     state.kills++;
+    if(state.siphon&&player.hp>0)player.hp=Math.min(player.maxHp,player.hp+state.siphon*(e.boss?20:1));
     dropStars(e,sp);
     burst(e.x,e.y,sp.color,e.boss?60:15,e.boss?340:190,{size:e.boss?3.6:2.8,drag:3});
     burst(e.x,e.y,'#ffffff',e.boss?18:5,e.boss?200:110,{size:2,drag:5});
@@ -1802,6 +2175,14 @@ function deaths(){
     }else sfx('kill');
   }
   enemies=alive;
+  for(const s of shards){
+    for(let i=0;i<s.sp.splits;i++){
+      const a=Math.random()*Math.PI*2;
+      const kid=spawnAt(s.sp.splitInto,clamp(s.x+Math.cos(a)*s.r*.7,40,RW-40),clamp(s.y+Math.sin(a)*s.r*.7,50,RH-50));
+      // thrown clear on the way out, and flagged so shrapnel cannot itself split
+      if(kid){kid.split=true;kid.kt=.4;kid.ktMax=.4;kid.kx=Math.cos(a)*560;kid.ky=Math.sin(a)*560;}
+    }
+  }
 }
 function burst(x,y,color,n,speed,opts){
   const size=opts&&opts.size||2.8, drag=opts&&opts.drag||3.4, spread=opts&&opts.spread||0;
@@ -1862,7 +2243,7 @@ function runCleared(){
   sfx('cleared');
   const c=characters[state.character]||characters[STARTER], d=difficulties[state.difficulty];
   show('<div class="modal"><div class="eyebrow">SECTOR CLEAR // '+d.label+'</div><h2>All areas cleared</h2>'
-    +'<p>All '+FINAL_ROOM+' areas flown and the MOTHERSHIP is down &mdash; flying <b style="color:'+c.color+'">'+c.name+'</b></p>'
+    +'<p>All '+FINAL_ROOM+' areas flown and the '+finaleBoss().name+' is down &mdash; flying <b style="color:'+c.color+'">'+c.name+'</b></p>'
     +'<div class="payout"><span>CREDITS EARNED <b>+'+earned+'</b> <em>&times;'+creditRate(state.difficulty)+' '+d.label+'</em></span>'
       +'<span>SKILL POINTS <b>+'+spEarned+'</b> <em>'+skillNote(state.difficulty)+'</em></span>'
       +'<span>BALANCE <b>'+points+'</b> &middot; <b>'+skill+' SP</b></span>'
@@ -1880,8 +2261,103 @@ function runCleared(){
 }
 function weaponPower(){return Object.values(state.weapons).reduce((sum,w)=>sum+(w.damage||0),0);}
 function updateRelics(dt){if(state.echo){const ghost=state.history[Math.min(18,state.history.length-1)]||player;state.echo.x=ghost.x;state.echo.y=ghost.y;state.echo.fireIn-=dt;if(state.echo.fireIn<=0){const target=enemies.reduce((best,e)=>liveTarget(e)&&onScreen(e)&&(!best||dist(e,state.echo)<dist(best,state.echo))?e:best,null);if(target){const a=ang(state.echo,target);echoShots.push({x:state.echo.x,y:state.echo.y,vx:Math.cos(a)*495,vy:Math.sin(a)*495,life:1.5,damage:weaponPower()*.25});burst(state.echo.x,state.echo.y,'#a6d8ff',8,100);}state.echo.fireIn=.42;}}}
-function showRelics(){state.paused=true;state.relicOpen=true;show('<div class="modal"><div class="eyebrow">BOSS RELIC // AREA '+state.room+'</div><h2>Choose a relic</h2><p>The exit will open after you claim one.</p><div class="cards"><div class="card"><span class="card-key">RELIC 01</span><h3>ECHO PHANTOM</h3><p>A ghost copies your movement and attacks for 25% of your combined weapon damage.</p><button data-relic="echo">CLAIM</button></div><div class="card"><span class="card-key">RELIC 02</span><h3>PHASE CLOAK</h3><p>'+ctrlPhase()+' to disappear for 3 seconds. You can move freely and take no damage.</p><button data-relic="cloak">CLAIM</button></div><div class="card"><span class="card-key">RELIC 03</span><h3>CORE OVERDRIVE</h3><p>All current weapons fire 25% faster.</p><button data-relic="overdrive">CLAIM</button></div></div></div>');document.querySelectorAll('[data-relic]').forEach(b=>b.onclick=()=>claimRelic(b.dataset.relic));}
-function claimRelic(id){if(id==='echo')state.echo={x:player.x,y:player.y,fireIn:0};if(id==='cloak')state.hasCloak=true;if(id==='overdrive')Object.values(state.weapons).forEach(w=>w.rate*=1.25);state.relicsTaken.push(id);state.relicRooms[state.room]=true;state.relicOpen=false;state.paused=false;hide();openPortal();}
+// ---- relics ---------------------------------------------------------------
+// one relic per boss, drawn three cards at a time from whatever is still on the
+// table, so no two runs are handed the same kit and no relic is ever offered
+// twice. `apply` runs once, on claim; anything it writes to `state` or `player`
+// has to survive storeRun/resumeRun, so a parked run keeps what it earned.
+// `desc` is the card, `line` the one-line pause-menu readout — either may be a
+// function when its wording depends on the live control scheme.
+const RELICS={
+  echo:{name:'ECHO PHANTOM',
+    desc:'A ghost copies your movement and attacks for 25% of your combined weapon damage.',
+    line:'A ghost mirrors your movement and fires with you.',
+    apply(){state.echo={x:player.x,y:player.y,fireIn:0};}},
+  cloak:{name:'PHASE CLOAK',
+    desc:()=>ctrlPhase()+' to disappear for 3 seconds. You can move freely and take no damage.',
+    line:()=>ctrlPhase()+' to phase out for 3 seconds.',
+    apply(){state.hasCloak=true;}},
+  overdrive:{name:'CORE OVERDRIVE',
+    desc:'Every weapon you are carrying cycles 25% faster.',
+    line:'All weapons fire 25% faster.',
+    apply(){Object.values(state.weapons).forEach(w=>w.rate*=1.25);}},
+  // the amplifier applies to what you carry now *and* what you pick up later, so
+  // it is worth as much taken early as taken late
+  focus:{name:'FOCUSING ARRAY',
+    desc:'Every weapon hits 18% harder — the ones you carry now, and anything you install later.',
+    line:'All weapon damage +18%.',
+    apply(){state.charDamage=(state.charDamage||1)*1.18;Object.values(state.weapons).forEach(w=>w.damage*=1.18);}},
+  drag:{name:'INERTIAL DRAG',
+    desc:'Fouls every hostile drive in the sector: they close 20% slower, bosses included.',
+    line:'Hostiles move 20% slower.',
+    apply(){state.enemyPace=(state.enemyPace||1)*.8;}},
+  plate:{name:'ABLATIVE PLATING',
+    desc:'Sheds the edge off everything that lands. All damage you take is cut by 20%.',
+    line:'Damage taken −20%.',
+    apply(){state.armor=(state.armor||1)*.8;}},
+  siphon:{name:'SIPHON CORE',
+    desc:'Every kill bleeds a little of itself back into your hull — 2 health a shape, 40 off a boss.',
+    line:'Kills repair 2 hull, 40 from a boss.',
+    apply(){state.siphon=(state.siphon||0)+2;}},
+  thorns:{name:'STATIC BARRIER',
+    desc:'Anything that lands a hit on you eats the discharge: a shock that damages everything close.',
+    line:'Taking a hit discharges a damaging shock.',
+    apply(){state.thorns=(state.thorns||0)+1;}},
+  lattice:{name:'PREDICTOR LATTICE',
+    desc:'+10 percentage points of critical chance, and +0.5x on every critical you land.',
+    line:'+10% crit chance, +0.5x crit damage.',
+    apply(){state.critChance=clamp((state.critChance||0)+.1,0,1);state.critMult=(state.critMult||1.3)+.5;}},
+  mender:{name:'AUTO-MENDER',
+    desc:'Field repair that never stops: +4 health a second for the rest of the run.',
+    line:'+4 health regenerated per second.',
+    apply(){player.regen+=4;}},
+  bulkhead:{name:'DRIFT BULKHEAD',
+    desc:'+45 maximum hull, and a full repair on the spot.',
+    line:'+45 maximum hull.',
+    apply(){player.maxHp+=45;player.hp=player.maxHp;}},
+  burner:{name:'AFTERBURNER',
+    desc:'+15% airframe speed, and the dash recharges a third sooner.',
+    line:'+15% speed, faster dash recharge.',
+    apply(){player.speed*=1.15;state.dashCd=(state.dashCd||3)*.67;}},
+  magnet:{name:'SALVAGE MAGNET',
+    desc:'Drags remnants in from across the floor, and every one of them is worth 25% more.',
+    line:'+25% XP, and remnants come to you.',
+    apply(){state.charXp=(state.charXp||1)*1.25;state.magnet=1;}}
+};
+const RELIC_IDS=Object.keys(RELICS);
+// a card's wording may depend on the control scheme, so it is resolved at read time
+const relicText=v=>typeof v==='function'?v():v;
+const relicPool=()=>RELIC_IDS.filter(id=>!state.relicsTaken.includes(id));
+function showRelics(){
+  const draw=shuffle(relicPool()).slice(0,3);
+  if(!draw.length){openPortal();return;}     // nothing left to hand out, so nothing to stop for
+  state.relicDraw=draw;
+  state.paused=true;state.relicOpen=true;
+  const cards=draw.map((id,i)=>'<div class="card"><span class="card-key">RELIC 0'+(i+1)+'</span><h3>'+RELICS[id].name
+    +'</h3><p>'+relicText(RELICS[id].desc)+'</p><button data-relic="'+id+'">CLAIM</button></div>').join('');
+  show('<div class="modal"><div class="eyebrow">BOSS RELIC // AREA '+state.room+'</div><h2>Choose a relic</h2>'
+    +'<p>The exit will open after you claim one.</p><div class="cards">'+cards+'</div></div>');
+  document.querySelectorAll('[data-relic]').forEach(b=>b.onclick=()=>claimRelic(b.dataset.relic));
+}
+function claimRelic(id){
+  const relic=RELICS[id];
+  if(!relic||state.relicsTaken.includes(id))return;
+  relic.apply();
+  state.relicsTaken.push(id);state.relicRooms[state.room]=true;state.relicDraw=null;
+  state.relicOpen=false;state.paused=false;hide();openPortal();
+}
+// STATIC BARRIER: whatever put a hit on you is standing close enough to pay for it
+function staticDischarge(){
+  const reach=210, dmg=(16+state.room*2.2)*state.thorns*(state.charDamage||1);
+  for(const e of enemies){
+    if(dist(e,player)>reach+e.r)continue;
+    const h=critHit(dmg);
+    e.hp-=h.dmg;e.flash=.15;
+    spawnDamageNumber(e.x,e.y,Math.ceil(h.dmg),h.crit?'#ffe17a':'#bff0ff',h.crit);
+  }
+  blasts.push({x:player.x,y:player.y,radius:reach,life:.32,maxLife:.32,color:'#bff0ff'});
+  burst(player.x,player.y,'#bff0ff',14,220,{size:2.4,drag:3});
+}
 const weaponUpgrades={
   bow:[
     ['bow-split','SPLIT BARREL','Fire one additional bolt.'],
@@ -2245,9 +2721,11 @@ function applyWeaponUpgrade(weapon,id){const w=state.weapons[weapon];if(weapon==
 }
 const globalInfo={};
 for(const id of Object.keys(GLOBALS))globalInfo[id]=[GLOBALS[id].name,GLOBALS[id].each];
-const relicInfo={echo:['ECHO PHANTOM','A ghost mirrors your movement and fires with you.'],cloak:['PHASE CLOAK','Press E to phase out for 3 seconds.'],overdrive:['CORE OVERDRIVE','All weapons fire 25% faster.']};
-// the cloak is the one relic you have to press something for, so its line follows the controls
-const relicLine=k=>k==='cloak'?ctrlPhase()+' to phase out for 3 seconds.':relicInfo[k][1];
+const relicInfo={};
+for(const id of RELIC_IDS)relicInfo[id]=[RELICS[id].name,RELICS[id].line];
+// the cloak is the one relic you have to press something for, so its line is
+// resolved here rather than stored — it follows whichever controls are live
+const relicLine=k=>RELICS[k]?relicText(RELICS[k].line):'';
 function loadoutMarkup(){
   const weapons=Object.keys(weaponUpgrades).filter(id=>state.weapons[id]||!exclusiveWeapons[id]).map(id=>{
     const w=state.weapons[id];
@@ -2646,7 +3124,7 @@ function draw(){
   }
   ctx.translate(-camX,-camY);
   drawBackground();
-  drawStrikes();drawBeams();drawStars();drawEnemies();drawBossArt();drawProjectiles();drawRockets();drawPhalanx();drawRings();drawMines();drawWells();drawPulses();drawBlasts();drawParticles();drawEcho();drawPortal();drawPlayer();drawWeaponEffects();drawDamageNumbers();
+  drawStrikes();drawBeams();drawStars();drawEnemies();drawBossArt();drawProjectiles();drawRockets();drawPhalanx();drawRings();drawMines();drawWells();drawPulses();drawBlasts();drawParticles();drawEcho();drawPortal();drawDashFx();drawPlayer();drawWeaponEffects();drawDamageNumbers();
   ctx.restore();
   drawOffscreenMarkers();
   drawVignette();
@@ -2885,7 +3363,9 @@ const HULLS={
   capital:[[1.2,0],[.6,.45],[.2,.45],[0,1],[-.7,1],[-.9,.5],[-1.1,.5],[-1.1,-.5],[-.9,-.5],[-.7,-1],[0,-1],[.2,-.45],[.6,-.45]]
 };
 const HULL_OF={square:'pod',triangle:'interceptor',hex:'cruiser',trap:'hauler',bowtie:'gunship',diamond:'racer',pentagon:'dreadnought',prism:'corvette',seeker:'frigate',raker:'barge',
-  boss:'capital',sentinel:'capital',lance:'racer',orbiter:'cruiser',beacon:'gunship',hollow:'capital'};
+  boss:'capital',sentinel:'capital',lance:'racer',orbiter:'cruiser',beacon:'gunship',hollow:'capital',
+  monolith:'barge',shrike:'racer',breacher:'dreadnought',wraith:'corvette',leviathan:'capital',
+  picket:'corvette',splitter:'hauler',scorcher:'barge',pyre:'dreadnought'};
 function enemyPath(e,sp){
   const pts=HULLS[HULL_OF[e.type]||'pod'];
   ctx.beginPath();
@@ -2956,6 +3436,20 @@ function drawBurn(e){
 function drawEnemies(){
   for(const e of enemies){
     const sp=types[e.type];
+    if(sp.guard&&e.ward&&e.ward.hp>0){
+      // the tie between a screen and its ward, so the shape of the problem reads
+      // at a glance rather than feeling like your guns are picking wrong
+      ctx.save();ctx.globalCompositeOperation='lighter';
+      ctx.globalAlpha=.26;ctx.strokeStyle=sp.color;ctx.lineWidth=1.6;
+      ctx.setLineDash([7,6]);ctx.lineDashOffset=-state.time*40;
+      ctx.beginPath();ctx.moveTo(e.x,e.y);ctx.lineTo(e.ward.x,e.ward.y);ctx.stroke();
+      ctx.setLineDash([]);
+      // and the face it keeps turned toward you
+      const fa=Math.atan2(player.y-e.y,player.x-e.x);
+      ctx.globalAlpha=.45+Math.sin(state.time*4)*.1;ctx.lineWidth=3;
+      ctx.beginPath();ctx.arc(e.x,e.y,e.r+9,fa-.9,fa+.9);ctx.stroke();
+      ctx.restore();
+    }
     const grow=clamp((state.time-(e.born||0))/.3,0,1);
     const sc=grow<1?.35+.65*grow+Math.sin(grow*Math.PI)*.16:1;
     const hit=clamp(e.flash/.12,0,1);
@@ -3032,17 +3526,41 @@ function drawProjectiles(){
   ctx.save();ctx.lineCap='round';
   const step=Math.floor(state.time*30);
   for(const a of arrows){
-    const dir=Math.atan2(a.vy,a.vx), sp=Math.hypot(a.vx,a.vy), len=clamp(sp*.05,18,44)*(.85+grand(step+a.seed)*.3);
+    // the round is a readout of the gun that fired it: every upgrade puts a
+    // little more mass behind it, and the ones that change how it flies say so
+    const g=a.grade||0, sz=1+g*.1+(a.heavy?.42:0);
+    const dir=Math.atan2(a.vy,a.vx), sp=Math.hypot(a.vx,a.vy),
+          len=clamp(sp*.05,18,44)*(.85+grand(step+a.seed)*.3)*(1+g*.12);
     ctx.save();ctx.translate(a.x,a.y);ctx.rotate(dir);
     // a flickering fire tail behind the round
     ctx.globalCompositeOperation='lighter';
-    ctx.globalAlpha=.3;ctx.fillStyle='#ff7a2a';flameTongue(-2,0,Math.PI,len,3.6);
-    ctx.globalAlpha=.45;ctx.fillStyle='#ffb54a';flameTongue(-2,0,Math.PI,len*.6,2.4);
-    ctx.globalAlpha=.7;ctx.fillStyle='#fff2c8';flameTongue(-2,0,Math.PI,len*.3,1.3);
+    ctx.globalAlpha=.3;ctx.fillStyle='#ff7a2a';flameTongue(-2,0,Math.PI,len,3.6*sz);
+    ctx.globalAlpha=.45;ctx.fillStyle='#ffb54a';flameTongue(-2,0,Math.PI,len*.6,2.4*sz);
+    ctx.globalAlpha=.7;ctx.fillStyle='#fff2c8';flameTongue(-2,0,Math.PI,len*.3,1.3*sz);
+    if(a.heavy){
+      // HEAVY SLUG rides inside its own bloom — the tell that the round hits hard
+      ctx.globalAlpha=.26+Math.sin(state.time*22+a.seed)*.08;ctx.fillStyle=a.color;
+      ctx.beginPath();ctx.arc(1,0,9.5*sz,0,7);ctx.fill();
+    }
+    if(a.seeker){
+      // SEEKER ROUNDS grow vanes, so a round that will turn looks like one
+      ctx.globalAlpha=.6;ctx.strokeStyle=a.color;ctx.lineWidth=1.6;
+      for(const side of [-1,1]){
+        ctx.beginPath();ctx.moveTo(-1*sz,side*3.2*sz);ctx.lineTo(-7.5*sz,side*7*sz);ctx.stroke();
+      }
+    }
     ctx.globalCompositeOperation='source-over';
     ctx.globalAlpha=1;
-    ctx.fillStyle='#f2fdff';ctx.shadowColor=a.color;ctx.shadowBlur=10;
-    ctx.beginPath();ctx.moveTo(11,0);ctx.lineTo(-3,4);ctx.lineTo(0,0);ctx.lineTo(-3,-4);ctx.closePath();ctx.fill();
+    ctx.fillStyle='#f2fdff';ctx.shadowColor=a.color;ctx.shadowBlur=10+g*3;
+    ctx.beginPath();ctx.moveTo(11*sz,0);ctx.lineTo(-3*sz,4*sz);ctx.lineTo(0,0);ctx.lineTo(-3*sz,-4*sz);ctx.closePath();ctx.fill();
+    if(a.pierce){
+      // PIERCING ROUNDS get the spike that earns the name
+      ctx.beginPath();ctx.moveTo(16.5*sz,0);ctx.lineTo(9*sz,2.1*sz);ctx.lineTo(9*sz,-2.1*sz);ctx.closePath();ctx.fill();
+    }
+    if(a.heavy){
+      ctx.shadowBlur=0;ctx.fillStyle='#ffffff';
+      ctx.beginPath();ctx.moveTo(6.5*sz,0);ctx.lineTo(-1*sz,2*sz);ctx.lineTo(-1*sz,-2*sz);ctx.closePath();ctx.fill();
+    }
     ctx.restore();
   }
   for(const s of echoShots){
@@ -3184,6 +3702,71 @@ function drawBossArt(){
         ctx.beginPath();ctx.moveTo(e.x,e.y);ctx.lineTo(add.x,add.y);ctx.stroke();
       }
     }
+    // ---- SECTOR 02 -----------------------------------------------------------
+    if(e.bossId==='monolith'){
+      const wind=e.mode==='wind'?clamp(1-e.timer,0,1):0;
+      ctx.globalAlpha=.3+wind*.5;
+      ctx.strokeStyle=spec.color;ctx.lineWidth=3+wind*5;
+      poly(e.x,e.y,e.r+14+Math.sin(state.time*2)*3,6,state.time*.35);ctx.stroke();
+      if(wind){
+        // a ring closing on the hull is the count-in: when it lands, so does the burst
+        ctx.globalAlpha=.5;ctx.lineWidth=3;
+        poly(e.x,e.y,e.r+16+(1-wind)*150,6,-state.time*.9);ctx.stroke();
+      }
+      ctx.globalAlpha=.22+wind*.45;ctx.fillStyle=spec.color;
+      poly(e.x,e.y,e.r*.45,6,state.time*-.5);ctx.fill();
+    }
+    if(e.bossId==='shrike'&&(e.mode==='wind'||e.mode==='pass')){
+      const wind=e.mode==='wind', len=wind?460:230, dir=wind?1:-1;   // the pass streaks the lane it just flew
+      ctx.globalAlpha=wind?.3+Math.sin(state.time*34)*.12:.45;
+      ctx.strokeStyle=spec.color;ctx.lineWidth=wind?4:e.r*1.1;
+      ctx.beginPath();ctx.moveTo(e.x,e.y);
+      ctx.lineTo(e.x+Math.cos(e.lockA||0)*len*dir,e.y+Math.sin(e.lockA||0)*len*dir);ctx.stroke();
+    }
+    if(e.bossId==='breacher'&&(e.mode==='aim'||e.mode==='lunge')){
+      // the lane fills as the wind-up runs, so the moment to leave it is readable
+      const len=560, k=e.mode==='aim'?clamp(1-e.timer/.85,0,1):1;
+      const tx=e.x+Math.cos(e.lockA||0)*len*k, ty=e.y+Math.sin(e.lockA||0)*len*k;
+      ctx.globalAlpha=(e.mode==='aim'?.14+k*.22:.34)+Math.sin(state.time*26)*.06;
+      ctx.strokeStyle=spec.color;ctx.lineWidth=e.r*1.5;
+      ctx.beginPath();ctx.moveTo(e.x,e.y);ctx.lineTo(tx,ty);ctx.stroke();
+      ctx.globalAlpha=.85;ctx.lineWidth=2.5;
+      ctx.beginPath();ctx.moveTo(e.x,e.y);ctx.lineTo(tx,ty);ctx.stroke();
+    }
+    if(e.bossId==='wraith'&&e.ghost>0){
+      // where it just was, and the thread back to it — the only warning you get
+      const k=e.ghost/.4;
+      ctx.save();
+      ctx.globalAlpha=k*.5;ctx.translate(e.ghostX,e.ghostY);ctx.rotate(e.rot||0);
+      ctx.strokeStyle=spec.color;ctx.lineWidth=2;
+      enemyPath(e,spec);ctx.stroke();
+      ctx.restore();
+      ctx.globalAlpha=k*.35;ctx.strokeStyle=spec.color;ctx.lineWidth=1.6;ctx.setLineDash([9,7]);
+      ctx.beginPath();ctx.moveTo(e.ghostX,e.ghostY);ctx.lineTo(e.x,e.y);ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    if(e.bossId==='leviathan'){
+      const arms=e.raged?4:2;
+      ctx.globalAlpha=.5;ctx.strokeStyle=spec.color;ctx.lineWidth=4;
+      for(let i=0;i<arms;i++){
+        const ba=(e.spin||0)+i*Math.PI*2/arms;
+        ctx.beginPath();ctx.moveTo(e.x+Math.cos(ba)*e.r*.5,e.y+Math.sin(ba)*e.r*.5);
+        ctx.lineTo(e.x+Math.cos(ba)*(e.r+42),e.y+Math.sin(ba)*(e.r+42));ctx.stroke();
+      }
+      ctx.globalAlpha=.35+Math.sin(state.time*3)*.12;ctx.lineWidth=3;
+      ctx.beginPath();ctx.arc(e.x,e.y,e.r+18,0,7);ctx.stroke();
+      if(e.charge>0){
+        // the nova wind-up: a disc that fills while a ring closes on it
+        ctx.globalAlpha=.2+e.charge*.45;ctx.fillStyle=spec.color;
+        ctx.beginPath();ctx.arc(e.x,e.y,e.r*e.charge*1.4,0,7);ctx.fill();
+        ctx.globalAlpha=.8;ctx.strokeStyle='#ffffff';ctx.lineWidth=2+e.charge*3;
+        ctx.beginPath();ctx.arc(e.x,e.y,e.r+30+(1-e.charge)*95,0,7);ctx.stroke();
+      }
+      if(e.raged){
+        ctx.globalAlpha=.28+Math.sin(state.time*8)*.14;ctx.strokeStyle='#ffffff';ctx.lineWidth=2;
+        ctx.beginPath();ctx.arc(e.x,e.y,e.r+32,0,7);ctx.stroke();
+      }
+    }
     ctx.restore();
   }
 }
@@ -3201,8 +3784,20 @@ function drawMines(){
       ctx.beginPath();ctx.arc(m.x,m.y,m.radius,0,7);ctx.fill();
       ctx.globalAlpha=.55+Math.sin(state.time*14)*.15;ctx.strokeStyle=m.color;ctx.shadowColor=m.color;ctx.shadowBlur=16;ctx.lineWidth=3;
       ctx.beginPath();ctx.arc(m.x,m.y,m.radius*(.14+(1-p)*.12),0,7);ctx.stroke();
+      if(m.heavy){
+        // COLLAPSE CHARGE: a second containment ring winding the other way, and
+        // a core heavy enough to see from across the room
+        ctx.globalAlpha=.4+Math.sin(state.time*9)*.12;ctx.lineWidth=2;
+        const sw=state.time*-1.7;
+        for(let i=0;i<3;i++){
+          const rr=m.radius*(.3+i*.13), a0=sw*(1+i*.35)+i*2.1;
+          ctx.beginPath();ctx.arc(m.x,m.y,rr,a0,a0+Math.PI*.62);ctx.stroke();
+        }
+        ctx.globalAlpha=.5+Math.sin(state.time*16)*.2;ctx.fillStyle=m.color;
+        ctx.beginPath();ctx.arc(m.x,m.y,14,0,7);ctx.fill();
+      }
       ctx.shadowBlur=0;ctx.globalAlpha=.9;ctx.fillStyle='#0b0c14';
-      ctx.beginPath();ctx.arc(m.x,m.y,9,0,7);ctx.fill();
+      ctx.beginPath();ctx.arc(m.x,m.y,m.heavy?11:9,0,7);ctx.fill();
       ctx.globalAlpha=.7;ctx.strokeStyle='#ffffff';ctx.lineWidth=1.5;ctx.stroke();
     }
     ctx.restore();
@@ -3257,6 +3852,16 @@ function drawBlasts(){
     ctx.globalAlpha=Math.pow(1-p,2.2)*.7;
     ctx.strokeStyle='#fff';ctx.lineWidth=2.4;
     ctx.beginPath();ctx.arc(b.x,b.y,b.radius*easeOut(p*.66),0,7);ctx.stroke();
+    if(b.heavy){
+      // a fused warhead — IMPACT FUSING on the torpedo, HEAVY WARHEAD on a rocket —
+      // puts a hard shock front out ahead of the fireball, so it reads as a crack
+      // rather than a bloom
+      const kr=b.radius*(.92+easeOut(p)*.5);
+      ctx.globalAlpha=(1-p)*.4;ctx.strokeStyle=b.color;ctx.lineWidth=2+9*(1-p);
+      ctx.beginPath();ctx.arc(b.x,b.y,kr*.94,0,7);ctx.stroke();
+      ctx.globalAlpha=(1-p)*.8;ctx.strokeStyle='#ffffff';ctx.lineWidth=1+3.5*(1-p);
+      ctx.beginPath();ctx.arc(b.x,b.y,kr,0,7);ctx.stroke();
+    }
     ctx.restore();
   }
 }
@@ -3288,6 +3893,81 @@ function drawEcho(){
 function drawPlayer(){
   const cloaked=state.cloakTime>0;
   drawPlane((cloaked?.3:1)*state.playerAlpha);
+}
+// the dash, drawn in layers that switch on with what has been bought for it. The
+// silhouette trail is the bare drive; everything past it is an upgrade showing
+// its work, so a fully-built dash reads as a different move to a stock one.
+function drawDashFx(){
+  if(!dashGhosts.length&&!state.dashBurst&&state.dashTime<=0)return;
+  const col=pilotColor(), P=planeOf(), r=player.r*PLANE_SCALE, kit=dashKit();
+  ctx.save();
+  ctx.globalCompositeOperation='lighter';
+  // ---- the lane behind you: silhouettes of where you just were -------------
+  for(const g of dashGhosts){
+    const k=clamp(g.life/g.max,0,1), fade=k*k;
+    ctx.save();
+    ctx.translate(g.x,g.y);ctx.rotate(g.a);
+    ctx.globalAlpha=fade*(.15+(kit.coils?.05:0)+(kit.shear?.05:0));
+    ctx.fillStyle=col;planePath(P,r);ctx.fill();
+    if(kit.shear){   // SHEAR DRIVE etches an edge onto every afterimage
+      ctx.globalAlpha=fade*.45;
+      ctx.strokeStyle='#ffffff';ctx.lineWidth=1.2;
+      planePath(P,r);ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // ---- the launch mark ------------------------------------------------------
+  const b=state.dashBurst;
+  if(b){
+    const k=1-b.life/b.max, out=1-k;
+    ctx.save();
+    ctx.globalAlpha=out*.5;ctx.strokeStyle=col;ctx.lineWidth=3;
+    ctx.beginPath();ctx.arc(b.x,b.y,16+k*90,0,7);ctx.stroke();
+    if(kit.coils){   // the coils dump a second, wider ring off the same mark
+      ctx.globalAlpha=out*.28;ctx.lineWidth=2;
+      ctx.beginPath();ctx.arc(b.x,b.y,8+k*160,0,7);ctx.stroke();
+    }
+    // and a plume pointing the way you went
+    ctx.translate(b.x,b.y);ctx.rotate(b.a);
+    ctx.globalAlpha=out*.32;ctx.fillStyle=col;
+    const w=r*.9+k*r*1.2, len=r*2+k*r*5;
+    ctx.beginPath();ctx.moveTo(0,-w);ctx.lineTo(len,0);ctx.lineTo(0,w);ctx.closePath();ctx.fill();
+    ctx.restore();
+  }
+  // ---- and the live pass, while you are still inside it ---------------------
+  if(state.dashTime>0){
+    const prog=clamp(1-state.dashTime/.22,0,1), step=Math.floor(state.time*40);
+    ctx.save();
+    ctx.translate(player.x,player.y);ctx.rotate(Math.atan2(state.dashY,state.dashX));
+    // SLIPSTREAM COILS: the lane tears open behind you
+    if(kit.coils){
+      ctx.globalAlpha=.3;ctx.strokeStyle=col;ctx.lineWidth=2;ctx.lineCap='round';
+      for(let i=0;i<5;i++){
+        const off=(i-2)*r*.42, len=r*(2.5+grand(step*3+i)*4);
+        ctx.beginPath();ctx.moveTo(-r*1.2,off);ctx.lineTo(-r*1.2-len,off*1.6);ctx.stroke();
+      }
+    }
+    // SHEAR DRIVE: the edges that make the pass cost something
+    if(kit.shear){
+      ctx.globalAlpha=.5+Math.sin(state.time*40)*.16;
+      ctx.strokeStyle='#ffffff';ctx.lineWidth=2;ctx.lineCap='round';
+      for(const side of [-1,1]){
+        ctx.beginPath();ctx.moveTo(r*1.5,side*r*.22);ctx.lineTo(-r*1.1,side*r*1.05);ctx.stroke();
+      }
+      ctx.globalAlpha=.45;ctx.strokeStyle=col;ctx.lineWidth=4;
+      ctx.beginPath();ctx.arc(0,0,r*1.5,-.5,.5);ctx.stroke();
+    }
+    // SHEAR DRIVE II: the bow shock that shoulders the lane open ahead of you
+    if(kit.shove){
+      const reach=r*(1.9+prog*.6);
+      ctx.globalAlpha=.22+prog*.16;ctx.fillStyle=col;
+      ctx.beginPath();ctx.arc(r*.5,0,reach,-.85,.85);ctx.lineTo(r*.5,0);ctx.closePath();ctx.fill();
+      ctx.globalAlpha=.6;ctx.strokeStyle='#ffffff';ctx.lineWidth=2.5;
+      ctx.beginPath();ctx.arc(r*.5,0,reach,-.85,.85);ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
 }
 // top-down planes: one vibrant plate in the pilot's colour, so the silhouette alone
 // says which airframe you are flying. Half-outlines, nose first and tail last, both
@@ -3392,12 +4072,18 @@ function drawAegis(w){
     const sp=t*(.7+i*.35)*(i%2?-1:1);
     ctx.beginPath();ctx.arc(player.x,player.y,r-6-i*7,sp,sp+Math.PI*.5);ctx.stroke();
   }
-  // nodes riding the rim
+  // nodes riding the rim — FIELD DENSITY adds emitters and a lit inner band
+  const dense=upg(w,DMG_UPGRADE.aegis);
+  if(dense){
+    ctx.globalAlpha=.3+Math.sin(t*5)*.08;ctx.strokeStyle=w.color;ctx.lineWidth=6;
+    ctx.beginPath();ctx.arc(player.x,player.y,r*.72,0,7);ctx.stroke();
+  }
   ctx.globalAlpha=.75;
   ctx.fillStyle='#e8fbff';
-  for(let i=0;i<6;i++){
-    const a=t*.9+i*Math.PI/3;
-    ctx.beginPath();ctx.arc(player.x+Math.cos(a)*r,player.y+Math.sin(a)*r,2.2+charge*2,0,7);ctx.fill();
+  const nodes=dense?10:6;
+  for(let i=0;i<nodes;i++){
+    const a=t*.9+i*Math.PI*2/nodes;
+    ctx.beginPath();ctx.arc(player.x+Math.cos(a)*r,player.y+Math.sin(a)*r,(dense?3.1:2.2)+charge*2,0,7);ctx.fill();
   }
   if(w.pull){
     ctx.globalAlpha=.22;ctx.strokeStyle=w.color;ctx.lineWidth=1.5;
@@ -3415,10 +4101,14 @@ function drawArc(w){
   ctx.save();
   ctx.globalCompositeOperation='lighter';
   ctx.lineCap='round';ctx.lineJoin='round';
-  for(let pass=0;pass<3;pass++){
-    ctx.strokeStyle=pass===2?'#ffffff':w.color;
-    ctx.globalAlpha=(pass===0?.3:pass===1?.6:1)*k;
-    ctx.lineWidth=(pass===0?11:pass===1?5:2)*k;
+  // OVERCHARGE wraps the bolt in a corona: one more pass, wider and dimmer, laid
+  // under the ones that were already there
+  const heavy=upg(w,DMG_UPGRADE.arc);
+  const passes=heavy?[[.16,20],[.34,11],[.62,5],[1,2.4]]:[[.3,11],[.6,5],[1,2]];
+  for(let pass=0;pass<passes.length;pass++){
+    ctx.strokeStyle=pass===passes.length-1?'#ffffff':w.color;
+    ctx.globalAlpha=passes[pass][0]*k;
+    ctx.lineWidth=passes[pass][1]*k;
     ctx.beginPath();
     for(let i=1;i<w.bolt.length;i++){
       const a=w.bolt[i-1],b=w.bolt[i];
@@ -3433,7 +4123,7 @@ function drawArc(w){
     ctx.stroke();
   }
   ctx.globalAlpha=k*.9;ctx.fillStyle='#ffffff';
-  for(let i=1;i<w.bolt.length;i++){ctx.beginPath();ctx.arc(w.bolt[i].x,w.bolt[i].y,7*k,0,7);ctx.fill();}
+  for(let i=1;i<w.bolt.length;i++){ctx.beginPath();ctx.arc(w.bolt[i].x,w.bolt[i].y,(heavy?9.5:7)*k,0,7);ctx.fill();}
   ctx.restore();
 }
 function drawBlade(w,a){
@@ -3467,6 +4157,16 @@ function drawBlade(w,a){
   ctx.globalCompositeOperation='lighter';
   ctx.fillStyle=w.color;ctx.globalAlpha=.55+Math.sin(state.time*20)*.2;
   ctx.beginPath();ctx.arc(reach+4,0,6,0,7);ctx.fill();
+  if(upg(w,DMG_UPGRADE.sword)){
+    // HONED EDGE: a glint that runs the length of the blade and off the tip
+    const k=(state.time*1.7)%1, gx=hilt+(reach-hilt)*k;
+    ctx.globalAlpha=(1-Math.abs(k*2-1))*.9;
+    ctx.strokeStyle='#ffffff';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(gx-9,0);ctx.lineTo(gx+9,0);ctx.stroke();
+    ctx.globalAlpha=.5;ctx.lineWidth=1.2;
+    ctx.beginPath();ctx.moveTo(hilt,-width*.34);ctx.lineTo(reach+5,0);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(hilt,width*.34);ctx.lineTo(reach+5,0);ctx.stroke();
+  }
   ctx.restore();
 }
 function drawLaser(w){
@@ -3481,21 +4181,32 @@ function drawLaser(w){
     ctx.setLineDash([]);
   }
   const t=w.beamT||0;
+  // FOCUSING OPTICS collapses the beam into a filament: a wider bloom around a
+  // core that is thinner and far brighter than an unfocused lance manages
+  const focus=upg(w,DMG_UPGRADE.laser);
   if(t>0&&w.bx!==undefined){
     const k=clamp(t/.14,0,1);
     const targets=[{x:w.bx,y:w.by}].concat(w.nova||[]);
     for(const g of targets){
       ctx.strokeStyle=w.color;
-      ctx.globalAlpha=.28*k;ctx.lineWidth=14*k;
+      ctx.globalAlpha=.28*k;ctx.lineWidth=(focus?19:14)*k;
       ctx.beginPath();ctx.moveTo(player.x,player.y);ctx.lineTo(g.x,g.y);ctx.stroke();
       ctx.globalAlpha=.7*k;ctx.lineWidth=5.5*k;
       ctx.beginPath();ctx.moveTo(player.x,player.y);ctx.lineTo(g.x,g.y);ctx.stroke();
       ctx.globalAlpha=k;ctx.strokeStyle='#ffffff';ctx.lineWidth=2*k;
       ctx.beginPath();ctx.moveTo(player.x,player.y);ctx.lineTo(g.x,g.y);ctx.stroke();
+      if(focus){
+        ctx.globalAlpha=k*(.75+Math.sin(state.time*40)*.25);ctx.lineWidth=.9*k;
+        ctx.beginPath();ctx.moveTo(player.x,player.y);ctx.lineTo(g.x,g.y);ctx.stroke();
+      }
       ctx.globalAlpha=k*.9;ctx.fillStyle='#ffffff';
-      ctx.beginPath();ctx.arc(g.x,g.y,10*k,0,7);ctx.fill();
+      ctx.beginPath();ctx.arc(g.x,g.y,(focus?14:10)*k,0,7);ctx.fill();
       ctx.globalAlpha=k*.6;ctx.strokeStyle=w.color;ctx.lineWidth=2.5;
       ctx.beginPath();ctx.arc(g.x,g.y,14+(1-k)*26,0,7);ctx.stroke();
+      if(focus){   // and the burn mark it leaves on whatever it settled on
+        ctx.globalAlpha=k*.5;ctx.lineWidth=1.6;
+        ctx.beginPath();ctx.arc(g.x,g.y,22+(1-k)*40,0,7);ctx.stroke();
+      }
     }
   }
   ctx.restore();
