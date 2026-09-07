@@ -1517,7 +1517,9 @@ function drawRockets(){
 // a launched slab rather than a shot: it barely hurts, but nothing it touches
 // stays where it was. Its job is to buy back the space around you.
 const WALL_SPEED=560;
-const WALL_LEG=1.35;
+// the throw has to outrange its own shove: KINETIC RAM pushes a crowd a long way,
+// and a wall that stopped short would leave the next one nothing to catch
+const WALL_LEG=1.9;
 function spawnWall(w,a,recall){
   const back=recall===undefined?!!w.recall:recall;
   const life=back?WALL_LEG*2:WALL_LEG;
@@ -1545,7 +1547,7 @@ function updateWalls(dt){
       const h=critHit(wl.damage);
       e.hp-=h.dmg;e.flash=h.crit?.24:.16;
       spawnDamageNumber(e.x,e.y,Math.ceil(h.dmg),wl.color,h.crit);
-      e.kx=nx*wl.push*dir;e.ky=ny*wl.push*dir;e.kt=.34;e.ktMax=.34;
+      if(!back){e.kx=nx*wl.push;e.ky=ny*wl.push;e.kt=.34;e.ktMax=.34;}
       if(wl.stun){e.slowT=Math.max(e.slowT||0,1);e.slowAmt=Math.max(e.slowAmt||0,.75);}
       burst(e.x,e.y,wl.color,7,150,{size:2.2,drag:4});
     }
