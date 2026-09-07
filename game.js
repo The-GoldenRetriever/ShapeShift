@@ -234,7 +234,7 @@ const characters = {
   revenant:  { name:'REVENANT',   cost:1000, hp:.8,   speed:1.1,  color:'#c879ff', tag:'VOLATILE', plane:'delta', sides:4, mark:'sparks', weapon:'arc',
                blurb:'Wired to an ion arc that leaps between targets.', perks:['exclusive: ION ARC','-20% hull','+10% speed'] },
   paragon:   { name:'PARAGON',    cost:2000, hp:1.1,  speed:1.1,  color:'#ffe17a', tag:'APEX', plane:'apex', sides:6, mark:'star', damage:1.2, xp:1.2, shock:10,
-               blurb:'Every system tuned past spec, down to a repulsor nobody else can carry.', perks:['Q &mdash; SHOCKWAVE, 10s cooldown','+20% weapon damage','+20% XP gained','+10% hull','+10% speed'] }
+               blurb:'Every system tuned past spec, down to a repulsor nobody else can carry.', perks:[()=>ctrlWave()+' &mdash; 10s cooldown','+20% weapon damage','+20% XP gained','+10% hull','+10% speed'] }
 };
 // v2 introduces the skill tree, which changes what a run is allowed to offer you.
 // Progress earned under the old economy has no meaning here, so every profile is
@@ -461,6 +461,7 @@ function setTouchMode(on){
   if(!touchMode)releaseTouch();
   paintControlHints();
   if(tutorial.open)showHowTo();            // the field manual teaches whichever controls are live
+  if(rosterOpen())showRoster();            // and the hangar names the control PARAGON is flown with
   return touchMode;
 }
 canvas.addEventListener('pointerdown',e=>{
@@ -4658,7 +4659,7 @@ function showRoster(){
   closeHowTo();
   const cards=Object.keys(characters).map(id=>{
     const c=characters[id], have=unlocked.has(id), active=chosen===id, can=points>=c.cost;
-    const perks=c.perks.length?'<ul class="pilot-perks">'+c.perks.map(p=>'<li>'+p+'</li>').join('')+'</ul>':'';
+    const perks=c.perks.length?'<ul class="pilot-perks">'+c.perks.map(p=>'<li>'+(typeof p==='function'?p():p)+'</li>').join('')+'</ul>':'';
     const action=active?'<button class="pilot-btn active" disabled>SELECTED</button>'
       :have?'<button class="pilot-btn" data-pick="'+id+'">SELECT</button>'
       :'<button class="pilot-btn'+(can?' buy':' locked')+'"'+(can?' data-buy="'+id+'"':' disabled')+'>'+(can?'UNLOCK '+c.cost:'LOCKED '+c.cost)+'</button>';
@@ -4757,6 +4758,7 @@ function cycleSector(dir){
   paintSectors();
 }
 const sectorScreenOpen=()=>!!$('#secGo');
+const rosterOpen=()=>!!$('#rosterBack');
 function showStart(){
   setInRun(false);
   closeHowTo();
