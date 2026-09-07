@@ -293,3 +293,37 @@ footer b{color:#cfdaec}
 /* the sealed foot of the tree */
 .locked-branch{opacity:.6}
 .locked-branch .tb-head b{color:#7d8ca7}
+
+/* ---- touch mode ---- */
+/* the stick and the ability pads are drawn on the canvas, so the DOM's job here
+   is to keep out of their corners and to stop the browser treating a thumb on
+   the arena as a scroll, a zoom or a text selection */
+body.touch{-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;overscroll-behavior:none}
+body.touch .game-wrap canvas{touch-action:none}
+/* both are replaced by what the canvas draws: the pads carry their own cooldowns */
+body.touch .move-hint,body.touch .ability-hud{display:none}
+/* the armament list sat exactly where the stick now lives, so it moves up under
+   the area label */
+body.touch .weapon-hud{bottom:auto;top:8.5%}
+@media(max-width:700px){body.touch .weapon-hud{top:9.5%;font-size:9px}}
+/* a phone has no height to spare: the chrome shrinks so the arena can take the
+   screen, and the 360px floor comes off so it can never overflow the width */
+body.touch .shell{padding:6px 8px}
+body.touch .topbar{height:48px;border-bottom:none}
+body.touch footer{display:none}
+body.touch .game-wrap{width:min(100%,calc((100vh - 66px) * 1.6));margin:6px auto 0}
+@supports(height:100dvh){body.touch .game-wrap{width:min(100%,calc((100dvh - 66px) * 1.6))}}
+.rotate-tip{display:none}
+body.touch .rotate-tip{margin:7px 0 0;text-align:center;font:9px 'DM Mono',monospace;letter-spacing:.16em;color:#4b5b74}
+@media(orientation:landscape){body.touch .rotate-tip{display:none}}
+/* the dev badge's second row: the mobile-controls switch sits under it */
+.dev-toggle.dev-sub{top:52px}
+/* a confirming button borrows the reset row's danger colours */
+.continue.danger{border-color:#7a2a41;background:#2a1119;color:#ff9bb4}
+.continue.danger:hover{border-color:var(--pink);color:#ffd3de}
+/* dev-only: which control scheme the field manual is previewing */
+.dev-switch{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px;margin:-10px 0 20px;font:10px 'DM Mono',monospace;letter-spacing:.16em;color:#6d7c96}
+.dev-switch button{background:#0f1626;border:1px solid #2a3b56;color:#8798b3;font:10px 'DM Mono',monospace;letter-spacing:.14em;padding:6px 12px;border-radius:4px}
+.dev-switch button:hover{border-color:#3c5f7d;color:#bcd4ee}
+.dev-switch button.on{border-color:#ff5fb0;color:#ff9ad2;box-shadow:0 0 14px #ff5fb033}
+.dev-switch i{font-style:normal;color:#4b5b74}

@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - `index.html` — the canvas plus the DOM HUD (every element the game writes to has an `id`)
 - `styles.css` — one minified base block, then appended readable override blocks
-- `game.js` — the entire game (~3300 lines, flat script, no modules or classes)
+- `game.js` — the entire game (~3950 lines, flat script, no modules or classes)
 
 ## Running
 
@@ -19,6 +19,8 @@ python3 -m http.server 8000    # then http://localhost:8000
 ```
 
 There is no build, no lint, and no test suite. Verification is by playing. Controls: WASD/arrows move, SPACE pauses, SHIFT dashes (only once `dashDrive` is bought), E phase-cloaks (relic), Q shockwaves (PARAGON), M mutes, F fullscreens.
+
+**Touch devices get a different control scheme**, chosen once at load by `matchMedia('(pointer:coarse)')` and switchable at runtime — see *Touch mode* below. `?touch=1` / `?touch=0` on the URL forces it either way, and dev mode carries a **MOBILE ON/OFF** switch under the DEV badge on the home screen — either way is how you test the mobile layout in a desktop browser.
 
 **A fresh profile lands on the skill tree, not the home screen** — the last line of `game.js` is `if(treeHas('w:bow'))showHome();else showTree()`. Until the free `w:bow` node is taken there is nothing a level-up could offer, so the XP bar is hidden entirely.
 
@@ -31,10 +33,11 @@ localStorage.setItem('shapeshift_hard_beaten','true')    // unlock IMPOSSIBLE wi
 state.room = 9; state.left = 0; enemies.length = 0       // next portal leads to a boss room
 state.xp = state.need                                    // force a level-up draw next frame
 state.weapons.mine = newWeapon('mine')                   // grant a weapon outright
+setTouchMode(true)                                       // flip to the on-screen stick and pads
 enterDev()                                               // every pilot unlocked, profile set aside
 ```
 
-`enterDev()` (reachable in-game from the home screen behind the password in `showDevPrompt`) is a sandbox: while `devMode` is true, `saveProfile`, `saveTree`, `storeRun`, `clearRun` and `recordRoom` all no-op, and `exitDev()` restores the pre-dev profile from `devBackup`. **Any new persistence call has to check `devMode` too**, or dev play will overwrite a real save.
+`enterDev()` (reachable in-game from the home screen behind the password in `showDevPrompt`) is a sandbox: while `devMode` is true, `saveProfile`, `saveTree`, `storeRun`, `clearRun` and `recordRoom` all no-op, and `exitDev()` restores the pre-dev profile from `devBackup` — including the touch scheme, so a forced MOBILE ON reverts to whatever the device itself asked for. Clicking a node in dev mode toggles its rank rather than buying it, and toggling one off runs `pruneTree()`, which zeroes every node whose `req` is no longer met. **Any new persistence call has to check `devMode` too**, or dev play will overwrite a real save.
 
 ## Architecture
 
@@ -54,7 +57,7 @@ The **room** is `RW×RH` (3000×1875); the **viewport** is `W×H` (1440×900). `
 
 ### State
 
-One global `state` object holds the whole run, rebuilt from scratch by `reset(difficulty)`. Entities live in sibling global arrays declared together on one line (`enemies`, `arrows`, `enemyBullets`, `stars`, `particles`, `blasts`, `echoShots`, `damageNumbers`, `delayedBlasts`, `strikes`, `rings`, `pulses`, `beams`, `mines`, `wells`), each with a paired `updateX(dt)` and `drawX()`. Adding an entity kind means adding the array to that declaration, clearing it in `reset()`, and wiring both functions into the `update`/`draw` call chains.
+One global `state` object holds the whole run, rebuilt from scratch by `reset(difficulty)`. Entities live in sibling global arrays declared together on one line (`game.js:188` — `enemies`, `arrows`, `enemyBullets`, `stars`, `particles`, `blasts`, `echoShots`, `damageNumbers`, `delayedBlasts`, `strikes`, `rings`, `pulses`, `beams`, `mines`, `wells`, `rockets`, `walls`), each with a paired `updateX(dt)` and `drawX()`. Adding an entity kind means adding the array to that declaration, clearing it in `reset()`, and wiring both functions into the `update`/`draw` call chains.
 
 ### Meta-progression: the skill tree gates the run
 
@@ -75,7 +78,8 @@ A **sector** is a whole run's worth of context, and `SECTORS` holds all of it: h
 - Payout multipliers flow through `sectorCredits()` / `sectorSkill()` / `sectorXp()` into `runReward`, `skillReward` and `xpValue` — a deeper sector pays for itself without touching the difficulty table.
 - `state.sector` is fixed for a run and saved with it; `chosenSector` is what the menus are pointing at. `sector()` returns the run's if there is one, otherwise the menu's.
 - Each sector has its own spawn pool (`SECTOR_SPAWNS`) and its own boss order (`SECTOR_BOSSES`) drawn from the shared `bossOrder`. Sector 2 leads with HOLLOW, which sector 1's area-50 cap keeps out of reach.
-- `sectorsOpen` (persisted as `shapeshift_sectors`) gates both the picker and the tree: any node carrying `sector: 2` is invisible via `nodeVisible` until that sector is open. Clearing `FINAL_ROOM` on hard opens the next one, in `runCleared`.
+- `sectorsOpen` (persisted as `shapeshift_sectors`) gates both the picker and the tree: any node carrying `sector: 2` is invisible via `nodeVisible` until that sector is open. Clearing `FINAL_ROOM` on hard opens the next one, in `runCleared`. `showTree()` draws the whole V2 half (ARMAMENTS V2 / SYSTEMS V2 / AMPLIFIERS V2) only when `sectorOpen(2)`; otherwise it prints one sealed panel in its place.
+- Sector 3 (`UNCHARTED`) exists today only as a `soon: true` reel preview — no spawn pool, no boss order, no `sky`.
 - `skyFor()` caches the star field and deck gradient **per sector** and throws them away when it changes — a new sector palette needs no other wiring.
 - Adding a sector: a `SECTORS` entry, a `SECTOR_SPAWNS` pool, a `SECTOR_BOSSES` order, and whatever `sector: <id>` nodes it should open on the tree. Set `soon: true` to put it on the reel as a locked preview.
 
@@ -95,7 +99,7 @@ Bosses bypass all of this and run their own state machine from `bossBehaviour[e.
 
 ### Room cycle
 
-`beginRoom()` sizes a spawn budget from `state.room` and difficulty `mass`, drip-feeds it via `state.spawnIn`, and shows the room banner. Bosses spawn on `room % 10 === 0` (`spawnBoss` picks via `bossForRoom`, cycling with a bulk bonus per full pass). `bossForRoom` special-cases `FINAL_ROOM` (50) to the `MOTHERSHIP`, which is why the rotation only ever reaches its first four entries — `hollow` is still wired up but unreachable while the run caps at 50.
+`beginRoom()` sizes a spawn budget from `state.room` and difficulty `mass`, drip-feeds it via `state.spawnIn`, and shows the room banner. Bosses spawn on `room % 10 === 0` (`spawnBoss` picks via `bossForRoom`, cycling with a bulk bonus per full pass). `bossForRoom` special-cases `FINAL_ROOM` (50) to the `MOTHERSHIP`, which is why a rotation only ever reaches its first four entries — sector 1 lists `hollow` fifth, so it is unreachable there; sector 2 leads with it.
 
 When `state.left === 0 && enemies.length === 0`, `finishRoom()` clears all hostile projectiles (you cannot die to a stray shot after winning), vacuums the remaining XP remnants, offers a relic on boss rooms, then `openPortal()`. `FINAL_ROOM` (50) ends the run: `nextRoom()` hands off to `runCleared()` instead of incrementing, which banks the payout, calls `clearRun()` and shows the SECTOR CLEAR screen (change difficulty / hangar / main menu). Area 50 skips its relic — there is no area left to spend it in. Clearing it on `IMPOSSIBLE_KEY` (hard) or on IMPOSSIBLE itself sets `shapeshift_hard_beaten`; easier settings never unlock it. Touching the portal starts the multi-stage `state.victorySequence` (`swirl` → `suck` → `flash`/`warp` → `arrive`), which drives camera zoom and rotation and ends by calling `nextRoom()`.
 
@@ -103,15 +107,25 @@ When `state.left === 0 && enemies.length === 0`, `finishRoom()` clears all hosti
 
 All menus are HTML strings passed to `show()`, which sets `#overlay`'s `innerHTML` and re-binds handlers by `id` / `data-*` attribute. The in-game HUD is DOM, not canvas: `hud()` runs at the end of every `update` and writes into the `ui` element map. The "how to play" screen (`demos`) is the exception — animated canvases rendered per card.
 
+### Touch mode
+
+`touchMode` swaps the keyboard for an on-screen stick and three ability pads, and rewrites every line of instruction to match. It is a runtime flag, not a build: `setTouchMode(on)` flips it live, and the first `pointerdown` with `pointerType === 'touch'` turns it on by itself, so a hybrid laptop switches the moment a finger lands. Forced on with a keyboard attached, the mouse drives the stick and the keys still work alongside it.
+
+- **Input.** The stick is floating: a `pointerdown` anywhere down the left of the arena (and outside a pad) raises it under the finger, and pushing past `STICK_R` drags the origin along so it never runs out of travel. It is analog — `moveInput()` returns a vector whose *length* is the throttle, `1` for a key and anything up to `1` for the stick — so both the player's travel and `dash()`'s aim read from that one function rather than from `keys` directly.
+- **Geometry is in CSS pixels**, converted to viewport units through `tScale()` (`W / canvasRect.width`, clamped). A pad stays thumb-sized whether the arena draws at 360px or full screen. `canvasRect` is cached and re-measured on resize, on fullscreen change and on every `pointerdown`.
+- **The pads are canvas, not DOM** — `drawTouchControls` runs in screen space from `draw()`, and `touchButtons()` is the single source of both their layout and their hit-testing. Each pad mirrors the ability row it replaces (`abilityState`), so `body.touch` hides the DOM `.ability-hud` and `.move-hint` rather than duplicating them.
+- **They only exist mid-run.** `touchLive()` gates drawing *and* input on the same condition; `drawTouchControls` calls `releaseTouch()` the moment it goes false, which is what stops a paused run from coasting on the last stick vector.
+- **Instruction text is centralised** in `ctrlMove()` / `ctrlDash()` / `ctrlWave()` / `ctrlPhase()`, read by the difficulty screen, the relic card, the pause-menu loadout and the DASH DRIVE tree node (rewritten in `paintControlHints`, which edits `TREE_BY_ID.dashDrive` — `buildTree` has already copied `PASSIVES` by then). The field manual swaps its first card through `demoList()`, which reads `manualTouch()` — dev mode's COMPUTER / MOBILE switch on that screen sets `devManual` to preview either manual without touching the live scheme. **Any new on-screen mention of a control belongs in those helpers**, or the two schemes will drift apart.
+
 ### Persistence
 
-`localStorage` keys, all prefixed `shapeshift_`: `_best_room`, `_points`, `_unlocked`, `_character`, `_hard_beaten`, `_skill`, `_tree`, `_sound`, `_run`, `_version`.
+`localStorage` keys, all prefixed `shapeshift_`: `_best_room`, `_points`, `_unlocked`, `_character`, `_hard_beaten`, `_skill`, `_tree`, `_sectors` (which sectors are open), `_sector` (the one the menus point at), `_sound`, `_run`, `_version`. Everything except `_sound` and `_version` is in `SAVE_KEYS` — `_sound` deliberately survives a version wipe.
 
 **Two independent version numbers, easy to confuse:**
 - `SAVE_VERSION` (currently `'2'`) versions the *profile*. On load, if `shapeshift_version` doesn't match, every key in `SAVE_KEYS` is deleted — a one-time wipe. Bump it only when a change makes old progress meaningless; anything new that must survive a wipe-free upgrade also needs adding to `SAVE_KEYS`.
 - The run blob's `v:1` in `storeRun`/`loadRun` versions the *parked run* only.
 
-`storeRun()` / `resumeRun()` save the run's *meaning*, not its entities — room number, level, weapons, globals, relics, player stats, the tree-derived scalars — and the room repopulates via `beginRoom()` on resume. **Any new `state` field that must survive a park-and-resume has to be added to both functions.** Death calls `clearRun()` — runs are only resumable by parking from the pause menu.
+`storeRun()` / `resumeRun()` save the run's *meaning*, not its entities — room number, level, weapons, globals, relics, player stats, the tree-derived scalars — and the room repopulates via `beginRoom()` on resume. **Any new `state` field that must survive a park-and-resume has to be added to both functions.** Death calls `clearRun()` — runs are only resumable by parking from the pause menu. A parked run can also be thrown away without flying a new one: DISCARD RUN on the home screen (two presses, `confirmingDrop`) just calls `clearRun()`, since parking already banked what the run was worth.
 
 ### Audio
 
@@ -155,7 +169,7 @@ Because the script is flat, one feature spreads across many functions. Miss a st
 6. `availableWeaponChoices` — the unlock blurb in the `desc` ternary chain
 7. `weapons(dt)` — the firing block
 8. `reset()`'s state literal — its cooldown field (`mineIn`), if it fires on an interval rather than continuously like `aegis`/`sword`
-9. the entity array in the line-130 declaration and in `reset()`, if it spawns persistent objects
+9. the entity array in the `game.js:188` declaration and in `reset()`, if it spawns persistent objects
 10. `update()`'s call chain — `updateMines(dt)`
 11. `draw()`'s call chain (room space) or `drawWeaponEffects` (for auras attached to the player)
 12. `ultimateEffects` — a branch if the ultimate ticks actively; otherwise add the id to the passive skip-list
@@ -170,7 +184,7 @@ Also add it to the weapon id list in `buildTree()`, and to `showTree()`'s ARMAME
 
 **A new tree passive:** a `PASSIVES` entry (`costs` per rank, `req`, and `reqMax` if it is a second stage) → a `PASSIVE_STEP` line for the per-rank readout → a `treeX()` accessor folded into `treeStats()` → a `NODE_STAT` entry so its card shows the before-and-after → read it into `state` in `reset()` → `storeRun`/`resumeRun` if the run scalar must survive a park.
 
-**A new HUD readout:** element with an `id` in `index.html` → entry in the `ui` map → write it in `hud()` or `paintAbilities`.
+**A new HUD readout:** element with an `id` in `index.html` → entry in the `ui` map → write it in `hud()` or `paintAbilities`. If it is an ability with a key, it also needs a pad in `touchButtons()` / `abilityState()` and a line in `paintControlHints`.
 
 ## Conventions
 
@@ -180,4 +194,4 @@ Also add it to the weapon id list in `buildTree()`, and to `showTree()`'s ARMAME
 - Damage, speeds and cooldowns are per-second values multiplied by `dt` — never per-frame constants.
 - `styles.css` is appended to, not rewritten: new rules go in a labelled block at the end rather than into the minified first line.
 - On-screen, an area is an **AREA**; in code it is still `room` (`state.room`, `beginRoom`, `shapeshift_best_room`). The identifiers are load-bearing — saved runs and localStorage keys use them — so rename the label, never the key.
-- Weapon display names get renamed for flavour fairly often (`bow` is `VULCAN CANNON`, `laser` is `PHOTON LANCE`). The **keys** — `bow`, `laser`, `bomb`, `sword`, `aegis`, `arc`, `mine` — are the stable identifiers and appear in saved runs *and in every tree node id*; don't rename them.
+- Weapon display names get renamed for flavour fairly often (`bow` is `VULCAN CANNON`, `laser` is `PHOTON LANCE`). The **keys** — `bow`, `laser`, `bomb`, `sword`, `aegis`, `arc`, `mine`, `missile`, `phalanx` — are the stable identifiers and appear in saved runs *and in every tree node id*; don't rename them.

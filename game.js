@@ -338,12 +338,110 @@ function resize() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.lineJoin='round'; ctx.lineCap='round';
 }
-resize(); addEventListener('resize', resize);
+resize(); addEventListener('resize', ()=>{resize();measureCanvas();});
 addEventListener('keydown', e => { if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'))return;   // let text fields have their keys
   const k = e.key.toLowerCase(); if (['arrowup','arrowdown','arrowleft','arrowright',' ','shift'].includes(k)) e.preventDefault(); keys.add(k); if (k === ' ') pause(); if (k === 'shift') dash(); if (k === 'e') phaseCloak(); if (k === 'q') shockPulse(); if (k === 'f') toggleFullscreen(); if (k === 'm'){initAudio();setSound(!soundOn);}
   // the sector reel is the one screen that reads the arrow keys as a menu
   if(sectorScreenOpen()&&(k==='arrowleft'||k==='arrowright')){sfx('ui');cycleSector(k==='arrowleft'?-1:1);} });
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+
+// ---- touch controls ------------------------------------------------------
+// a phone gets the same three inputs a keyboard has, since the guns fire
+// themselves: a floating stick under the left thumb, and DASH / PHASE / WAVE
+// under the right. Geometry is written in CSS pixels and converted to viewport
+// units, so a thumb-sized button stays thumb-sized however large or small the
+// arena happens to be drawn.
+const touchParam=(location.search.match(/[?&]touch=([^&]+)/)||[])[1];
+const touchCapable=()=>{
+  if(typeof matchMedia==='function')return matchMedia('(pointer:coarse)').matches;
+  return 'ontouchstart' in window||(navigator.maxTouchPoints||0)>0;
+};
+let touchMode=touchParam==='1'?true:touchParam==='0'?false:touchCapable();
+const STICK_R=92, STICK_DEAD=.16, BTN_R=52, TOUCH_EDGE=26;
+const stick={id:null,active:false,ox:0,oy:0,x:0,y:0,dx:0,dy:0};
+const touchPress={};                       // pointerId -> button id, so a lifted finger unlights its button
+const btnFlash={dash:0,phase:0,wave:0};
+let canvasRect=null;
+const measureCanvas=()=>{canvasRect=canvas.getBoundingClientRect();};
+const tScale=()=>{if(!canvasRect||!canvasRect.width)measureCanvas();return clamp(W/(canvasRect.width||W),.6,3.4);};
+const viewPoint=e=>{
+  if(!canvasRect||!canvasRect.width)measureCanvas();
+  return {x:(e.clientX-canvasRect.left)/canvasRect.width*W,y:(e.clientY-canvasRect.top)/canvasRect.height*H};
+};
+// the cluster fans out from the bottom-right corner: dash sits under the thumb,
+// the other two arc away from it
+function touchButtons(){
+  const s=tScale(), r=BTN_R*s, r2=r*.86, d=r+r2+13*s;
+  const ax=W-TOUCH_EDGE*s-r, ay=H-TOUCH_EDGE*s-r;
+  return [{id:'dash', label:'DASH', x:ax,      y:ay,        r,     color:'#55e6ff'},
+          {id:'phase',label:'PHASE',x:ax-d,    y:ay,        r:r2,  color:'#bca7ff'},
+          {id:'wave', label:'WAVE', x:ax-d*.5, y:ay-d*.87,  r:r2,  color:'#ffe17a'}];
+}
+// each pad mirrors the ability row it replaces, cooldown and all
+function abilityState(id){
+  if(id==='dash') return {on:!!state.hasDash, cd:state.dashCooldown||0, max:state.dashCd||3, live:state.dashTime>0};
+  if(id==='phase')return {on:!!state.hasCloak,cd:state.cloakCooldown||0,max:12,             live:state.cloakTime>0};
+  return              {on:!!state.hasPulse,cd:state.pulseCooldown||0,max:state.pulseCd||14,live:false};
+}
+const fireAbility=id=>{if(id==='dash')dash();else if(id==='phase')phaseCloak();else shockPulse();};
+// the pads only exist while a run is actually being flown: not on a menu, not
+// mid-cinematic, not while the death fade is running
+const touchLive=()=>touchMode&&!!state&&inRun&&state.active&&!state.paused&&!state.over&&!state.dying&&!state.victorySequence;
+function releaseTouch(){stick.id=null;stick.active=false;stick.dx=0;stick.dy=0;for(const k in touchPress)delete touchPress[k];}
+function setTouchMode(on){
+  touchMode=!!on;
+  if(!touchMode)releaseTouch();
+  paintControlHints();
+  if(tutorial.open)showHowTo();            // the field manual teaches whichever controls are live
+  return touchMode;
+}
+canvas.addEventListener('pointerdown',e=>{
+  // a hybrid machine reports a fine pointer right up until a finger lands on it
+  if(e.pointerType==='touch'&&!touchMode)setTouchMode(true);
+  if(!touchLive())return;
+  measureCanvas();
+  const p=viewPoint(e);
+  for(const b of touchButtons()){
+    if(Math.hypot(p.x-b.x,p.y-b.y)>b.r*1.15)continue;
+    e.preventDefault();
+    if(canvas.setPointerCapture)canvas.setPointerCapture(e.pointerId);
+    touchPress[e.pointerId]=b.id;
+    if(abilityState(b.id).on){btnFlash[b.id]=.22;fireAbility(b.id);}else sfx('hurt');
+    return;
+  }
+  // anywhere down the left of the arena raises the stick under the finger, so
+  // there is never a pad to find first
+  if(stick.id===null&&p.x<W*.58&&p.y>H*.14){
+    e.preventDefault();
+    if(canvas.setPointerCapture)canvas.setPointerCapture(e.pointerId);
+    stick.id=e.pointerId;stick.active=true;
+    stick.ox=stick.x=p.x;stick.oy=stick.y=p.y;stick.dx=stick.dy=0;
+  }
+},{passive:false});
+canvas.addEventListener('pointermove',e=>{
+  if(stick.id!==e.pointerId)return;
+  e.preventDefault();
+  const p=viewPoint(e), r=STICK_R*tScale();
+  let dx=p.x-stick.ox, dy=p.y-stick.oy;
+  const l=Math.hypot(dx,dy);
+  if(l>r){                                 // past the ring the origin follows, so the stick never runs out of travel
+    const over=1-r/l;
+    stick.ox+=dx*over;stick.oy+=dy*over;
+    dx*=r/l;dy*=r/l;
+  }
+  stick.x=stick.ox+dx;stick.y=stick.oy+dy;
+  const push=Math.min(1,Math.hypot(dx,dy)/r);
+  const throttle=push<STICK_DEAD?0:(push-STICK_DEAD)/(1-STICK_DEAD);
+  const u=Math.hypot(dx,dy)||1;
+  stick.dx=dx/u*throttle;stick.dy=dy/u*throttle;
+},{passive:false});
+function endTouch(e){
+  if(stick.id===e.pointerId){stick.id=null;stick.active=false;stick.dx=0;stick.dy=0;}
+  delete touchPress[e.pointerId];
+}
+canvas.addEventListener('pointerup',endTouch);
+canvas.addEventListener('pointercancel',endTouch);
+addEventListener('blur',releaseTouch);
 
 function reset(difficulty = 'medium') {
   const c = characters[chosen] || characters[STARTER];
@@ -565,10 +663,19 @@ function shockPulse(){
   burst(player.x,player.y,'#ffffff',18,220,{size:2.4,drag:3});
   shockwave(player.x,player.y,col,1500);
 }
+// where the pilot is asking to go, as a vector whose length is the throttle:
+// the keys are all or nothing, the touch stick is analog
+function moveInput(){
+  if(stick.active)return {x:stick.dx,y:stick.dy};
+  const x=(keys.has('d')||keys.has('arrowright')?1:0)-(keys.has('a')||keys.has('arrowleft')?1:0);
+  const y=(keys.has('s')||keys.has('arrowdown')?1:0)-(keys.has('w')||keys.has('arrowup')?1:0);
+  const l=Math.hypot(x,y)||1;
+  return {x:x/l,y:y/l};
+}
 function dash(){
   if(!state||!state.hasDash||state.paused||state.transitioning||state.victorySequence||(!state.exit&&state.intermission)||state.dashCooldown>0||state.dashTime>0)return;
-  let x=(keys.has('d')||keys.has('arrowright')?1:0)-(keys.has('a')||keys.has('arrowleft')?1:0);
-  let y=(keys.has('s')||keys.has('arrowdown')?1:0)-(keys.has('w')||keys.has('arrowup')?1:0);
+  const aim=moveInput();
+  let x=aim.x, y=aim.y;
   if(!x&&!y){x=state.lastMoveX;y=state.lastMoveY;}
   const len=Math.hypot(x,y)||1;state.dashX=x/len;state.dashY=y/len;state.dashTime=.22;state.dashCooldown=state.dashCd||3;shake(4);sfx('dash');
   state.dashHit=[];      // one shear per shape per dash, however long you are inside it
@@ -609,6 +716,7 @@ function update(dt,real) {
   state.dashCooldown=Math.max(0,state.dashCooldown-dt);
   state.cloakCooldown=Math.max(0,state.cloakCooldown-dt);state.cloakTime=Math.max(0,state.cloakTime-dt);
   state.pulseCooldown=Math.max(0,state.pulseCooldown-dt);
+  for(const k in btnFlash)btnFlash[k]=Math.max(0,btnFlash[k]-real*4);   // the tap flash is wall-clock: slow motion should not stretch it
   if(state.victoryPortal&&!state.victorySequence){
     const p=state.victoryPortal;
     const d=dist(player,p);
@@ -736,10 +844,10 @@ function update(dt,real) {
     state.beatIn=(state.beatIn||0)-real;
     if(state.beatIn<=0){sfx('beat');state.beatIn=.34+lowHp*1.9;}
   }else state.beatIn=0;
-  let mx=(keys.has('d')||keys.has('arrowright')?1:0)-(keys.has('a')||keys.has('arrowleft')?1:0);
-  let my=(keys.has('s')||keys.has('arrowdown')?1:0)-(keys.has('w')||keys.has('arrowup')?1:0);
-  const ml=Math.hypot(mx,my)||1;
-  if(mx||my){state.lastMoveX=mx/ml;state.lastMoveY=my/ml;}
+  const aim=moveInput();
+  const mx=aim.x, my=aim.y;
+  const ml=Math.hypot(mx,my);           // 0 while idle, up to 1 at full throw
+  if(ml>.001){state.lastMoveX=mx/ml;state.lastMoveY=my/ml;}
   if(state.dashTime>0){
     state.dashTime=Math.max(0,state.dashTime-dt);
     const ds=1380*(state.dashPower||1);
@@ -748,8 +856,8 @@ function update(dt,real) {
     burst(player.x-state.dashX*10,player.y-state.dashY*10,pilotColor(),2,90);
     if(state.dashShear>0)shearDash();
   }else{
-    const targetVx=(mx/ml)*player.speed,targetVy=(my/ml)*player.speed;
-    if(mx||my){player.vx+=(targetVx-player.vx)*12*dt;player.vy+=(targetVy-player.vy)*12*dt;}else{player.vx-=player.vx*15*dt;player.vy-=player.vy*15*dt;}
+    const targetVx=mx*player.speed,targetVy=my*player.speed;
+    if(ml>.001){player.vx+=(targetVx-player.vx)*12*dt;player.vy+=(targetVy-player.vy)*12*dt;}else{player.vx-=player.vx*15*dt;player.vy-=player.vy*15*dt;}
     player.x=clamp(player.x+player.vx*dt,45,RW-45);player.y=clamp(player.y+player.vy*dt,65,RH-45);
   }
   if(state.knockT>0){
@@ -1772,7 +1880,7 @@ function runCleared(){
 }
 function weaponPower(){return Object.values(state.weapons).reduce((sum,w)=>sum+(w.damage||0),0);}
 function updateRelics(dt){if(state.echo){const ghost=state.history[Math.min(18,state.history.length-1)]||player;state.echo.x=ghost.x;state.echo.y=ghost.y;state.echo.fireIn-=dt;if(state.echo.fireIn<=0){const target=enemies.reduce((best,e)=>liveTarget(e)&&onScreen(e)&&(!best||dist(e,state.echo)<dist(best,state.echo))?e:best,null);if(target){const a=ang(state.echo,target);echoShots.push({x:state.echo.x,y:state.echo.y,vx:Math.cos(a)*495,vy:Math.sin(a)*495,life:1.5,damage:weaponPower()*.25});burst(state.echo.x,state.echo.y,'#a6d8ff',8,100);}state.echo.fireIn=.42;}}}
-function showRelics(){state.paused=true;state.relicOpen=true;show('<div class="modal"><div class="eyebrow">BOSS RELIC // AREA '+state.room+'</div><h2>Choose a relic</h2><p>The exit will open after you claim one.</p><div class="cards"><div class="card"><span class="card-key">RELIC 01</span><h3>ECHO PHANTOM</h3><p>A ghost copies your movement and attacks for 25% of your combined weapon damage.</p><button data-relic="echo">CLAIM</button></div><div class="card"><span class="card-key">RELIC 02</span><h3>PHASE CLOAK</h3><p>Press E to disappear for 3 seconds. You can move freely and take no damage.</p><button data-relic="cloak">CLAIM</button></div><div class="card"><span class="card-key">RELIC 03</span><h3>CORE OVERDRIVE</h3><p>All current weapons fire 25% faster.</p><button data-relic="overdrive">CLAIM</button></div></div></div>');document.querySelectorAll('[data-relic]').forEach(b=>b.onclick=()=>claimRelic(b.dataset.relic));}
+function showRelics(){state.paused=true;state.relicOpen=true;show('<div class="modal"><div class="eyebrow">BOSS RELIC // AREA '+state.room+'</div><h2>Choose a relic</h2><p>The exit will open after you claim one.</p><div class="cards"><div class="card"><span class="card-key">RELIC 01</span><h3>ECHO PHANTOM</h3><p>A ghost copies your movement and attacks for 25% of your combined weapon damage.</p><button data-relic="echo">CLAIM</button></div><div class="card"><span class="card-key">RELIC 02</span><h3>PHASE CLOAK</h3><p>'+ctrlPhase()+' to disappear for 3 seconds. You can move freely and take no damage.</p><button data-relic="cloak">CLAIM</button></div><div class="card"><span class="card-key">RELIC 03</span><h3>CORE OVERDRIVE</h3><p>All current weapons fire 25% faster.</p><button data-relic="overdrive">CLAIM</button></div></div></div>');document.querySelectorAll('[data-relic]').forEach(b=>b.onclick=()=>claimRelic(b.dataset.relic));}
 function claimRelic(id){if(id==='echo')state.echo={x:player.x,y:player.y,fireIn:0};if(id==='cloak')state.hasCloak=true;if(id==='overdrive')Object.values(state.weapons).forEach(w=>w.rate*=1.25);state.relicsTaken.push(id);state.relicRooms[state.room]=true;state.relicOpen=false;state.paused=false;hide();openPortal();}
 const weaponUpgrades={
   bow:[
@@ -2138,6 +2246,8 @@ function applyWeaponUpgrade(weapon,id){const w=state.weapons[weapon];if(weapon==
 const globalInfo={};
 for(const id of Object.keys(GLOBALS))globalInfo[id]=[GLOBALS[id].name,GLOBALS[id].each];
 const relicInfo={echo:['ECHO PHANTOM','A ghost mirrors your movement and fires with you.'],cloak:['PHASE CLOAK','Press E to phase out for 3 seconds.'],overdrive:['CORE OVERDRIVE','All weapons fire 25% faster.']};
+// the cloak is the one relic you have to press something for, so its line follows the controls
+const relicLine=k=>k==='cloak'?ctrlPhase()+' to phase out for 3 seconds.':relicInfo[k][1];
 function loadoutMarkup(){
   const weapons=Object.keys(weaponUpgrades).filter(id=>state.weapons[id]||!exclusiveWeapons[id]).map(id=>{
     const w=state.weapons[id];
@@ -2156,7 +2266,7 @@ function loadoutMarkup(){
     return '<div class="lo-weapon'+(w.ultimate?' maxed':'')+'"><div class="lo-head"><i class="weapon-dot" style="background:'+w.color+'"></i><b>'+w.name+'</b>'+(w.ultimate?'<span class="lo-ult">ULT</span>':'')+'<span class="lo-lvl">'+lvl+'</span></div><ul class="lo-list">'+rows+'</ul>'+foot+'</div>';
   }).join('');
   const extras=Object.keys(globalInfo).filter(k=>state.globals[k]).map(k=>'<li class="on"><b>'+globalInfo[k][0]+(state.globals[k]>1?' &times;'+state.globals[k]:'')+'</b><span>'+globalInfo[k][1]+'</span></li>').join('')
-    +state.relicsTaken.map(k=>'<li class="on relic"><b>'+relicInfo[k][0]+'</b><span>'+relicInfo[k][1]+'</span></li>').join('');
+    +state.relicsTaken.map(k=>'<li class="on relic"><b>'+relicInfo[k][0]+'</b><span>'+relicLine(k)+'</span></li>').join('');
   const stats='<div class="lo-stats"><span>AREA <b>'+state.room+'</b></span><span>LEVEL <b>'+state.level+'</b></span><span>KILLS <b>'+state.kills+'</b></span><span>HULL <b>'+Math.ceil(player.hp)+'/'+player.maxHp+'</b></span><span>SPEED <b>'+Math.round(player.speed)+'</b></span><span>REGEN <b>'+player.regen.toFixed(0)+'/s</b></span></div>';
   return '<div class="modal wide"><div class="eyebrow">SYSTEM PAUSED</div><h2>Loadout</h2>'+stats
     +'<div class="loadout">'+weapons+'</div>'
@@ -2233,6 +2343,29 @@ function gameOver(){
 }
 function show(markup){ui.overlay.innerHTML=markup;ui.overlay.classList.remove('hidden');}function hide(){ui.overlay.classList.add('hidden');ui.overlay.innerHTML='';}
 function hud(){ui.hp.style.width=player.hp/player.maxHp*100+'%';ui.hpText.textContent=Math.ceil(player.hp)+' / '+player.maxHp;if(ui.xpHud)ui.xpHud.style.display=state.hasDraw?'':'none';ui.xp.style.width=Math.min(100,state.xp/state.need*100)+'%';ui.xpText.textContent=Math.floor(state.xp)+' / '+state.need+' XP';ui.level.textContent='LV '+state.level;ui.kills.textContent=state.kills;paintBest();if(ui.arena)ui.arena.innerHTML='AREA '+state.room+' <span>&bull;</span> BEST '+highscore;ui.timer.textContent=new Date(state.time*1000).toISOString().slice(14,19);ui.weapons.innerHTML=Object.values(state.weapons).map(w=>'<span class="weapon-item'+(w.ultimate?' ult':'')+'"><i class="weapon-dot" style="background:'+w.color+'"></i>'+w.name+' <small>'+(w.ultimate?'MAX':'★'+w.taken.length+(w.taken.length>=5?' ▲':''))+'</small></span>').join('');paintAbilities();}
+// every line of on-screen instruction reads from these, so the manual, the
+// difficulty screen and the HUD can never disagree about what the controls are
+const ctrlMove=()=>touchMode?'drag the left of the arena to fly':'WASD or arrows to move';
+const ctrlDash=()=>touchMode?'tap DASH':'SHIFT to dash';
+const ctrlWave=()=>touchMode?'tap WAVE':'Q for a shockwave';
+const ctrlPhase=()=>touchMode?'Tap PHASE':'Press E';
+const DASH_NODE_DESC={
+  key:'Unlocks the dash on SHIFT: a short burst of speed that also carries you straight through anything that would have hit you.',
+  touch:'Unlocks the DASH pad: a short burst of speed that also carries you straight through anything that would have hit you.'};
+function paintControlHints(){
+  document.body.classList.toggle('touch',touchMode);
+  const hint=document.querySelector('.move-hint');
+  if(hint)hint.innerHTML=touchMode?'DRAG LEFT <span>FLY</span>':'WASD / ARROWS <span>MOVE</span>';
+  const caps=touchMode?{dashRow:'PAD',phaseRow:'PAD',pulseRow:'PAD'}:{dashRow:'SHIFT',phaseRow:'E',pulseRow:'Q'};
+  for(const id in caps){const el=document.querySelector('#'+id+' small');if(el)el.textContent=caps[id];}
+  // the keyboard shortcut in a tooltip is a lie on a device with no keyboard
+  const tip=(sel,txt)=>{const el=document.querySelector(sel);if(el)el.title=txt;};
+  tip('#soundBtn',touchMode?'Mute':'Mute (M)');
+  tip('#fsBtn',touchMode?'Fullscreen':'Fullscreen (F)');
+  tip('#pauseBtn',touchMode?'Pause':'Pause (Space)');
+  const node=TREE_BY_ID&&TREE_BY_ID.dashDrive;
+  if(node)node.desc=touchMode?DASH_NODE_DESC.touch:DASH_NODE_DESC.key;
+}
 function paintAbilities(){
   const dash=ui.dashRow, text=ui.dashText, phase=ui.phaseRow, ptext=ui.phaseText;
   if(dash&&text){
@@ -2432,6 +2565,72 @@ function drawVictorySequence(){
     ctx.restore();
   }
 }
+// the stick and the ability pads are drawn in screen space, over everything the
+// room draws but under the death fade and the banners
+function drawTouchControls(){
+  if(!touchMode)return;
+  if(!touchLive()){if(stick.active||stick.id!==null)releaseTouch();return;}
+  const s=tScale(), r=STICK_R*s;
+  ctx.save();
+  if(stick.active){
+    const col=pilotColor();
+    ctx.lineWidth=2.4*s;ctx.strokeStyle=rgba(col,.3);
+    ctx.beginPath();ctx.arc(stick.ox,stick.oy,r,0,7);ctx.stroke();
+    ctx.lineWidth=1.4*s;ctx.strokeStyle=rgba(col,.14);
+    ctx.beginPath();ctx.arc(stick.ox,stick.oy,r*.42,0,7);ctx.stroke();
+    ctx.lineWidth=2*s;ctx.strokeStyle=rgba(col,.26);
+    ctx.beginPath();ctx.moveTo(stick.ox,stick.oy);ctx.lineTo(stick.x,stick.y);ctx.stroke();
+    ctx.shadowColor=col;ctx.shadowBlur=18*s;
+    ctx.fillStyle=rgba(col,.42);
+    ctx.beginPath();ctx.arc(stick.x,stick.y,r*.34,0,7);ctx.fill();
+    ctx.shadowBlur=0;
+    ctx.fillStyle='rgba(255,255,255,.72)';
+    ctx.beginPath();ctx.arc(stick.x,stick.y,r*.15,0,7);ctx.fill();
+  }else{
+    // idle: a dim home ring in the corner it is dragged from, so the control is
+    // discoverable without a finger already on the glass
+    const hx=TOUCH_EDGE*s+r, hy=H-TOUCH_EDGE*s-r;
+    ctx.setLineDash([6*s,7*s]);
+    ctx.lineWidth=1.6*s;ctx.strokeStyle='rgba(150,190,240,.15)';
+    ctx.beginPath();ctx.arc(hx,hy,r*.8,0,7);ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle='rgba(160,200,245,.28)';
+    ctx.font='500 '+(11*s)+"px 'DM Mono', monospace";
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('DRAG TO FLY',hx,hy);
+  }
+  ctx.restore();
+  for(const b of touchButtons())drawTouchPad(b,s);
+}
+function drawTouchPad(b,s){
+  const st=abilityState(b.id), flash=btnFlash[b.id]||0;
+  let held=false;for(const k in touchPress)if(touchPress[k]===b.id)held=true;
+  ctx.save();
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillStyle=st.on?rgba(b.color,.1+flash*.5+(held?.12:0)):'rgba(14,20,32,.42)';
+  ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,7);ctx.fill();
+  ctx.lineWidth=2*s;
+  ctx.strokeStyle=st.on?rgba(b.color,st.cd>0?.3:.7):'rgba(120,140,175,.26)';
+  ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,7);ctx.stroke();
+  if(st.on&&st.cd>0){
+    // the ring fills back round as the cooldown runs out
+    const done=clamp(1-st.cd/(st.max||1),0,1);
+    ctx.strokeStyle=rgba(b.color,.85);ctx.lineWidth=3.4*s;
+    ctx.beginPath();ctx.arc(b.x,b.y,b.r,-Math.PI/2,-Math.PI/2+done*Math.PI*2);ctx.stroke();
+  }else if(st.on){
+    ctx.shadowColor=b.color;ctx.shadowBlur=(st.live?26:13)*s;
+    ctx.strokeStyle=rgba(b.color,.8);ctx.lineWidth=2.4*s;
+    ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,7);ctx.stroke();
+    ctx.shadowBlur=0;
+  }
+  ctx.fillStyle=st.on?rgba(b.color,1):'rgba(150,168,196,.5)';
+  ctx.font='700 '+(b.r*.3)+"px 'Space Grotesk', sans-serif";
+  ctx.fillText(b.label,b.x,b.y-b.r*.12);
+  ctx.font='500 '+(b.r*.21)+"px 'DM Mono', monospace";
+  ctx.fillStyle=st.on?'rgba(226,240,255,.7)':'rgba(130,148,178,.45)';
+  ctx.fillText(!st.on?'LOCKED':st.live?'ACTIVE':st.cd>0?st.cd.toFixed(1)+'s':'READY',b.x,b.y+b.r*.36);
+  ctx.restore();
+}
 function draw(){
   camera();
   ctx.clearRect(0,0,W,H);ctx.fillStyle='#060a14';ctx.fillRect(0,0,W,H);
@@ -2458,6 +2657,7 @@ function draw(){
     ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
   }
   drawLowHealthBorder();
+  drawTouchControls();
   if(state.screenAlpha>0){ctx.fillStyle='rgba(0,0,0,'+state.screenAlpha+')';ctx.fillRect(0,0,W,H);}
   drawVictorySequence();drawRoomBanner();
 }
@@ -3563,22 +3763,92 @@ const demos=[
       g.restore();
     }}
 ];
+// the same first card, taught for a thumb: the manual shows whichever set of
+// controls the device is actually going to give you
+const touchMoveDemo={ title:'FLY & DASH', period:4.6,
+  text:'Drag anywhere down the left of the arena and a stick appears under your thumb — push it to fly. Tap DASH on the right for a burst of speed nothing can hit you during.',
+  draw(g,t){
+    demoBg(g);
+    const legs=[
+      {t0:0,   t1:.8,  x0:60, y0:74, x1:132,y1:74},
+      {t0:.8,  t1:1.45,x0:132,y0:74, x1:132,y1:34},
+      {t0:1.45,t1:2.15,x0:132,y0:34, x1:68, y1:34},
+      {t0:2.15,t1:2.8, x0:68, y0:34, x1:68, y1:74},
+      {t0:2.8, t1:3.2, x0:68, y0:74, x1:120,y1:74},
+      {t0:3.2, t1:3.5, x0:120,y0:74, x1:246,y1:74, dash:true}
+    ];
+    const at=time=>{
+      if(time<=0)return {x:legs[0].x0,y:legs[0].y0,dx:0,dy:0,dash:false};
+      for(const l of legs){
+        if(time<l.t1){
+          const f=clamp((time-l.t0)/(l.t1-l.t0),0,1), len=Math.hypot(l.x1-l.x0,l.y1-l.y0)||1;
+          return {x:lerp(l.x0,l.x1,f),y:lerp(l.y0,l.y1,f),dx:(l.x1-l.x0)/len,dy:(l.y1-l.y0)/len,dash:!!l.dash};
+        }
+      }
+      const last=legs[legs.length-1];
+      return {x:last.x1,y:last.y1,dx:0,dy:0,dash:false};
+    };
+    const now=at(t);
+    for(let i=1;i<=8;i++){
+      const p=at(t-i*.042);
+      g.globalAlpha=.17*(1-i/9);
+      dot(g,p.x,p.y,9*(1-i/10),'#55e6ff');
+    }
+    g.globalAlpha=1;
+    dot(g,now.x,now.y,9,now.dash?'#ffffff':'#dff6ff','#55e6ff');
+    // the stick, bottom left, held over exactly the way it is being flown
+    const sx=38,sy=112,sr=19;
+    g.save();
+    g.strokeStyle='rgba(85,230,255,.35)';g.lineWidth=1.4;
+    g.beginPath();g.arc(sx,sy,sr,0,7);g.stroke();
+    const kx=sx+now.dx*sr*.72, ky=sy+now.dy*sr*.72;
+    g.strokeStyle='rgba(85,230,255,.28)';
+    g.beginPath();g.moveTo(sx,sy);g.lineTo(kx,ky);g.stroke();
+    dot(g,kx,ky,7.5,'rgba(85,230,255,.5)','#55e6ff');
+    dot(g,kx,ky,3,'#e8fbff');
+    g.restore();
+    // the dash pad, bottom right, lit for the leg it is driving
+    const bx=236,by=112,br=17, lit=now.dash;
+    g.save();
+    g.fillStyle=lit?'rgba(85,230,255,.34)':'rgba(85,230,255,.08)';
+    g.beginPath();g.arc(bx,by,br,0,7);g.fill();
+    g.strokeStyle=lit?'#8df1ff':'rgba(85,230,255,.4)';g.lineWidth=lit?2:1.3;
+    g.beginPath();g.arc(bx,by,br,0,7);g.stroke();
+    g.fillStyle=lit?'#eaffff':'#7fd6e8';
+    g.font="bold 8px 'DM Mono', monospace";g.textAlign='center';g.textBaseline='middle';
+    g.fillText('DASH',bx,by+.5);
+    g.restore();
+  }};
+// dev mode can preview either manual whatever the machine is running, so the
+// mobile cards can be proofread from a desktop
+let devManual=null;                                    // null = whatever the device is actually flying
+const manualTouch=()=>devManual?devManual==='touch':touchMode;
+const demoList=()=>manualTouch()?[touchMoveDemo].concat(demos.slice(1)):demos;
 function showHowTo(){
   setInRun(false);
   tutorial.open=true;tutorial.t=0;tutorial.last=0;
-  const cards=demos.map((d,i)=>'<div class="how-card"><canvas id="demo'+i+'" width="'+DEMO_W*2+'" height="'+DEMO_H*2+'"></canvas>'
+  const list=demoList();
+  const cards=list.map((d,i)=>'<div class="how-card"><canvas id="demo'+i+'" width="'+DEMO_W*2+'" height="'+DEMO_H*2+'"></canvas>'
     +'<b>'+d.title+'</b><p>'+d.text+'</p></div>').join('');
+  const devRow=devMode
+    ? '<div class="dev-switch"><span>DEV PREVIEW</span>'
+      +'<button'+(manualTouch()?'':' class="on"')+' data-manual="key">COMPUTER</button>'
+      +'<button'+(manualTouch()?' class="on"':'')+' data-manual="touch">MOBILE</button>'
+      +'<i>LIVE &middot; '+(touchMode?'MOBILE':'COMPUTER')+'</i></div>'
+    : '';
   show('<div class="modal wide"><div class="eyebrow">FIELD MANUAL</div><h2>How to play</h2>'
     +'<p>You control where you stand. Everything else fires itself.</p>'
+    +devRow
     +'<div class="how-grid">'+cards+'</div>'
     +'<button class="continue ghost" id="howBack">BACK</button></div>');
-  tutorial.cards=demos.map((d,i)=>{
+  tutorial.cards=list.map((d,i)=>{
     const el=document.querySelector('#demo'+i);
     if(!el||!el.getContext)return null;
     const g=el.getContext('2d');
     g.setTransform(2,0,0,2,0,0);
     return {def:d,g};
   }).filter(Boolean);
+  document.querySelectorAll('[data-manual]').forEach(b=>b.onclick=()=>{sfx('ui');devManual=b.dataset.manual==='touch'?'touch':'key';showHowTo();});
   $('#howBack').onclick=()=>{closeHowTo();showHome();};
 }
 function closeHowTo(){tutorial.open=false;tutorial.cards=[];}
@@ -3591,13 +3861,15 @@ function drawTutorial(dt){
     c.g.restore();
   }
 }
-let confirmingReset=false, confirmingNew=false;
+let confirmingReset=false, confirmingNew=false, confirmingDrop=false;
 function showHome(){
   setInRun(false);
   closeHowTo();
   confirmingReset=false;
   const c=characters[chosen]||characters[STARTER];
   show('<button class="dev-toggle'+(devMode?' on':'')+'" id="devBtn" title="Developer mode">'+(devMode?'DEV MODE ON':'DEV')+'</button>'
+    // the stick and the pads are otherwise unreachable on a machine with a keyboard
+    +(devMode?'<button class="dev-toggle dev-sub'+(touchMode?' on':'')+'" id="devTouch" title="Force the touch controls">MOBILE '+(touchMode?'ON':'OFF')+'</button>':'')
     +'<div class="modal home">'
     +'<div class="eyebrow">STARWING</div>'
     +'<h1 class="home-title">NEON SURVIVORS</h1>'
@@ -3609,15 +3881,19 @@ function showHome(){
       +(savedRun
         ? '<button class="continue big" id="homeContinue">CONTINUE RUN</button>'
           +'<button class="continue ghost" id="homePlay">'+(confirmingNew?'START OVER? THIS ENDS THE SAVED RUN':'NEW RUN')+'</button>'
+          // parking already paid for the ground it covered, so letting it go costs nothing — it just clears the slot
+          +'<button class="continue ghost'+(confirmingDrop?' danger':'')+'" id="homeDrop">'+(confirmingDrop?'DISCARD IT? THIS CANNOT BE UNDONE':'DISCARD RUN')+'</button>'
         : '<button class="continue big" id="homePlay">PLAY</button>')
       +'<button class="continue ghost" id="homeTree">UPGRADE TREE'+(treeAffordable()?' <em class="pip">'+treeAffordable()+'</em>':'')+'</button>'
       +'<button class="continue ghost" id="homeHow">HOW TO PLAY</button>'
       +'<button class="continue ghost" id="homeRoster">HANGAR'+(affordableCount()?' <em class="pip">'+affordableCount()+'</em>':'')+'</button>'
     +'</div>'
   +'</div>');
-  $('#homeTree').onclick=()=>{sfx('ui');showTree();};
+  $('#homeTree').onclick=()=>{sfx('ui');confirmingNew=confirmingDrop=false;showTree();};
   $('#devBtn').onclick=()=>{sfx('ui');if(devMode){exitDev();showHome();}else showDevPrompt();};
-  $('#homePlay').onclick=()=>{sfx('ui');
+  const devTouch=$('#devTouch');
+  if(devTouch)devTouch.onclick=()=>{sfx('ui');setTouchMode(!touchMode);toast(touchMode?'MOBILE CONTROLS ON':'MOBILE CONTROLS OFF');showHome();};
+  $('#homePlay').onclick=()=>{sfx('ui');confirmingDrop=false;
     if(!treeHas('w:bow')){showTree();return;}      // cannot fly without the cannon
     if(savedRun&&!confirmingNew){confirmingNew=true;showHome();return;}
     confirmingNew=false;
@@ -3625,9 +3901,18 @@ function showHome(){
     // with more than one sector open, which one you are flying is the first choice
     if(sectorsOpen.size>1)showSectors(); else showStart();
   };
-  if(savedRun)$('#homeContinue').onclick=()=>{confirmingNew=false;resumeRun();};
-  $('#homeHow').onclick=()=>{sfx('ui');showHowTo();};
-  $('#homeRoster').onclick=()=>{sfx('ui');showRoster();};
+  if(savedRun)$('#homeContinue').onclick=()=>{confirmingNew=confirmingDrop=false;resumeRun();};
+  const drop=$('#homeDrop');
+  if(drop)drop.onclick=()=>{
+    sfx('ui');confirmingNew=false;
+    if(!confirmingDrop){confirmingDrop=true;showHome();return;}
+    confirmingDrop=false;
+    clearRun();
+    toast('SAVED RUN DISCARDED');
+    showHome();
+  };
+  $('#homeHow').onclick=()=>{sfx('ui');confirmingNew=confirmingDrop=false;showHowTo();};
+  $('#homeRoster').onclick=()=>{sfx('ui');confirmingNew=confirmingDrop=false;showRoster();};
 }
 const affordableCount=()=>Object.keys(characters).filter(id=>!unlocked.has(id)&&points>=characters[id].cost).length;
 function showRoster(){
@@ -3743,7 +4028,7 @@ function showStart(){
   const resetRow = confirmingReset
     ? '<div class="reset-row confirming"><span>Erase your best room, '+points+' credits and '+unlocked.size+' unlocked pilot'+(unlocked.size===1?'':'s')+(hardStored?', and re-lock IMPOSSIBLE':'')+'? This cannot be undone.</span><button id="resetNo">CANCEL</button><button id="resetYes" class="danger">ERASE</button></div>'
     : '<div class="reset-row"><span>BEST AREA <b>'+highscore+'</b> <i>&bull;</i> '+points+' CREDITS'+(hardStored?' <i>&bull;</i> IMPOSSIBLE UNLOCKED':devMode?' <i>&bull;</i> IMPOSSIBLE VIA DEV':'')+'</span><button id="resetData">RESET DATA</button></div>';
-  show('<div class="modal"><div class="eyebrow">STARWING // '+sectorDef(chosenSector).name+'</div><h2>Choose your difficulty</h2><p>Flying as <b style="color:PILOTCOLOR">PILOTNAME</b> &middot; WASD or arrows to move'+(treeHas('dashDrive')?', SHIFT to dash':'')+(pilot.shock?', Q for a shockwave':'')+'. Your cannon fires itself.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>14% less enemy health, 12% slower, 15% softer hits, a thinner crowd, and slower enemy fire that fades sooner.</p><p class="pay">CREDITS &times;0.7 &middot; NO SKILL POINTS</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Baseline health, speed, damage and numbers. The intended run.</p><p class="pay">CREDITS &times;1</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>+28% health, +20% speed, +35% damage, +22% more enemies, a nastier mix &mdash; and enemy fire that flies 25% faster and hangs about 30% longer.</p><p class="pay">CREDITS &times;1.75</p><button data-difficulty="hard">START HARD</button></div>' + (!hardAvailable ? '<div class="card card-locked"><span class="card-key">04 // LOCKED</span><h3>IMPOSSIBLE</h3><p>Clear area '+IMPOSSIBLE_ROOM+' on HARD to unlock. Easier settings do not count, however far you get. It pays double skill points.</p><p class="pay">BEST AREA '+highscore+' / '+IMPOSSIBLE_ROOM+' &middot; HARD ONLY</p></div>' : '')
+  show('<div class="modal"><div class="eyebrow">STARWING // '+sectorDef(chosenSector).name+'</div><h2>Choose your difficulty</h2><p>Flying as <b style="color:PILOTCOLOR">PILOTNAME</b> &middot; '+ctrlMove()+(treeHas('dashDrive')?', '+ctrlDash():'')+(pilot.shock?', '+ctrlWave():'')+'. Your cannon fires itself.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>14% less enemy health, 12% slower, 15% softer hits, a thinner crowd, and slower enemy fire that fades sooner.</p><p class="pay">CREDITS &times;0.7 &middot; NO SKILL POINTS</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Baseline health, speed, damage and numbers. The intended run.</p><p class="pay">CREDITS &times;1</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>+28% health, +20% speed, +35% damage, +22% more enemies, a nastier mix &mdash; and enemy fire that flies 25% faster and hangs about 30% longer.</p><p class="pay">CREDITS &times;1.75</p><button data-difficulty="hard">START HARD</button></div>' + (!hardAvailable ? '<div class="card card-locked"><span class="card-key">04 // LOCKED</span><h3>IMPOSSIBLE</h3><p>Clear area '+IMPOSSIBLE_ROOM+' on HARD to unlock. Easier settings do not count, however far you get. It pays double skill points.</p><p class="pay">BEST AREA '+highscore+' / '+IMPOSSIBLE_ROOM+' &middot; HARD ONLY</p></div>' : '')
     + (hardAvailable ? '<div class="card" style="border-color:#ff0000; box-shadow: 0 0 15px #ff000044;"><span class="card-key" style="color:#ff4f9a">04 // '+(hardStored?'ELITE':'DEV')+'</span><h3 style="color:#ff4f9a">IMPOSSIBLE</h3><p>Triple health, +80% speed, double damage, half again as many enemies, enemy fire 50% faster and lasting 60% longer &mdash; and touching a boss kills you outright.</p><p class="pay hot">CREDITS &times;3 &middot; SKILL &times;2</p><button data-difficulty="impossible" style="background:#ff4f9a">START IMPOSSIBLE</button></div>' : '') + '</div>' + resetRow + '<button class="continue ghost" id="startBack">BACK</button></div>');
   ui.overlay.innerHTML=ui.overlay.innerHTML.replace('PILOTCOLOR',pilot.color).replace('PILOTNAME',pilot.name);
   document.querySelectorAll('[data-difficulty]').forEach(b=>b.onclick=()=>{
@@ -3878,7 +4163,7 @@ function showTree(){
 function enterDev(){
   if(devMode)return;
   devBackup={points,skill,highscore,chosen,unlocked:new Set(unlocked),tree:Object.assign({},tree),
-    sectorsOpen:new Set(sectorsOpen),chosenSector};
+    sectorsOpen:new Set(sectorsOpen),chosenSector,touchMode};
   devMode=true;
   for(const id of Object.keys(characters))unlocked.add(id);
   toast('DEVELOPER MODE ON');
@@ -3889,6 +4174,8 @@ function exitDev(){
   points=devBackup.points;skill=devBackup.skill;highscore=devBackup.highscore;
   chosen=devBackup.chosen;unlocked=devBackup.unlocked;tree=devBackup.tree;
   sectorsOpen=devBackup.sectorsOpen;chosenSector=devBackup.chosenSector;
+  setTouchMode(devBackup.touchMode);      // whatever the device itself asked for
+  devManual=null;                         // and the manual goes back to teaching it
   devBackup=null;
   savedRun=loadRun();                     // whatever was on disk before we started
   paintBest();
@@ -3896,7 +4183,7 @@ function exitDev(){
 }
 function showDevPrompt(){
   show('<div class="modal dev-modal"><div class="eyebrow">DEVELOPER</div><h2>Enter password</h2>'
-    +'<p>Unlocks every pilot and lets you switch any tree node on or off. Your saved profile is set aside while it is on, and handed straight back when you leave.</p>'
+    +'<p>Unlocks every pilot, lets you switch any tree node on or off, and can force the mobile controls on a machine with a keyboard. Your saved profile is set aside while it is on, and handed straight back when you leave.</p>'
     +'<input id="devPass" class="dev-input" type="password" autocomplete="off" spellcheck="false" placeholder="PASSWORD">'
     +'<div class="dev-msg" id="devMsg"></div>'
     +'<button class="continue" id="devGo">ENTER</button>'
@@ -3933,12 +4220,12 @@ function paintFsBtn(){
   ui.fsBtn.title=on?'Exit fullscreen (F or Esc)':'Fullscreen (F)';
   ui.fsBtn.classList.toggle('on',on);
 }
-addEventListener('fullscreenchange',paintFsBtn);
-addEventListener('webkitfullscreenchange',paintFsBtn);
+addEventListener('fullscreenchange',()=>{paintFsBtn();measureCanvas();});
+addEventListener('webkitfullscreenchange',()=>{paintFsBtn();measureCanvas();});
 if(ui.fsBtn)ui.fsBtn.onclick=toggleFullscreen;
 if(ui.soundBtn)ui.soundBtn.onclick=()=>{initAudio();setSound(!soundOn);sfx('ui');};
 paintSoundBtn();
 // browsers only allow audio to start from a gesture, so open the context on the first one
 addEventListener('pointerdown',()=>{if(soundOn)initAudio();},{once:true});
 $('#pauseBtn').onclick=pause;
-paintBest();paintBrand();setInRun(false);if(treeHas('w:bow'))showHome();else showTree();requestAnimationFrame(frame);
+paintBest();paintBrand();paintControlHints();measureCanvas();setInRun(false);if(treeHas('w:bow'))showHome();else showTree();requestAnimationFrame(frame);
