@@ -5299,7 +5299,7 @@ function showDevPrompt(){
     +'<button class="continue ghost" id="devCancel">CANCEL</button></div>');
   const go=()=>{
     const el=$('#devPass');
-    if(el&&el.value==='bunnybob'){enterDev();showHome();}
+    if(el&&el.value==='bunnybobc'){enterDev();showHome();}
     else{const m=$('#devMsg');if(m)m.textContent='WRONG PASSWORD';sfx('hurt');}
   };
   $('#devGo').onclick=go;
