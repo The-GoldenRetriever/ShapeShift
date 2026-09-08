@@ -432,3 +432,9 @@ body.touch.fs-on .weapon-hud{top:calc(env(safe-area-inset-top,0px) + 60px)}
 .foe.finale .foe-tag{border-color:var(--foe);color:var(--foe)}
 @media(max-width:700px){.foes{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
   .foe{padding:10px}.foe-art{height:62px}.foe.boss .foe-art{height:74px}.foe-line{font-size:10px}}
+
+/* a stacking system that has hit its per-run ceiling: still installed and still
+   working, but the draw will not offer it again, so it stops reading as a
+   live option in the pause-menu list */
+.lo-list li.capped b{color:#9cf0bd}
+.lo-list li.capped span{color:#6f8a78}

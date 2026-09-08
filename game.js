@@ -786,8 +786,26 @@ function nearest() {
   for(const e of enemies){ if(!liveTarget(e)||!onScreen(e))continue; const d=dist(player,e); if(d<bestD){best=e;bestD=d;} }
   return best;
 }
+// Nothing on screen worth shooting, but something is already in the air toward
+// you: the cannon engages the round itself rather than sitting idle while you
+// dodge. Two rules keep this from becoming a targeting cheat — the round has to
+// be on screen, the same gate `nearest()` uses, so an off-screen shape can never
+// be reached through the bullets it fired; and it has to be *closing*, so rounds
+// that have already sailed past are left alone instead of being chased backwards.
+function nearestShot() {
+  let best=null, bestD=Infinity;
+  for(const b of enemyBullets){
+    if(b.life<=0||!onScreen(b))continue;
+    const dx=player.x-b.x, dy=player.y-b.y;
+    if(b.vx*dx+b.vy*dy<=0)continue;      // heading away: not a threat, not worth a round
+    const d=Math.hypot(dx,dy);
+    if(d<bestD){best=b;bestD=d;}
+  }
+  return best;
+}
 function fire() {
-  const target=nearest(); if(!target)return;
+  // the cannon alone will engage incoming fire when the screen is otherwise clear
+  const target=nearest()||nearestShot(); if(!target)return;
   player.aim=ang(player,target); const w=state.weapons.bow;
   const shotCount=(w.shots||1)+(w.ultimate?2:0), speed=w.projectileSpeed||620;
   // every round leaves the nose along the plane's heading, then banks toward its target
@@ -2579,7 +2597,7 @@ const GLOBALS={
     desc:'Lets a level-up offer KINETIC THRUSTERS: +18% movement speed, every time you take it.'},
   regen:{name:'NANITE REPAIR',cost:10,run:'Health regeneration +2 per second.',each:'Health regeneration +2/s each',
     desc:'Lets a level-up offer NANITE REPAIR: +2 health regenerated per second, every time you take it.'},
-  dash:{name:'SLIPSTREAM COILS',cost:14,req:['dashDrive'],run:'Dash carries you 60% further. Offered once.',each:'Dash carries you 60% further',
+  dash:{name:'SLIPSTREAM COILS',cost:14,max:1,req:['dashDrive'],run:'Dash carries you 60% further. Offered once.',each:'Dash carries you 60% further',
     desc:'Lets a level-up offer SLIPSTREAM COILS, which carries your dash 60% further. Offered once per run. Needs DASH DRIVE — there is nothing to extend without it.'},
   // ---- SYSTEMS V2: the same three systems, rebuilt --------------------------
   hull2:{name:'DRIFT PLATING',cost:34,sector:2,branch:'sys2',req:['g:health'],run:'Maximum health +55 and fully repairs.',each:'Maximum health +55 each',
@@ -2589,6 +2607,15 @@ const GLOBALS={
   thrust2:{name:'KINETIC OVERDRIVE',cost:34,sector:2,branch:'sys2',req:['g:speed'],run:'Movement speed +30%.',each:'Movement speed +30% each',
     desc:'Replaces the thruster card with a harder one: +30% movement speed, every time you take it.'}
 };
+// How many times one system can be installed in a single run. Without a ceiling a
+// long run collapses into the same hull card over and over, because a stacking
+// system is always the safe pick next to a weapon upgrade you have to build around.
+// `dash` sets its own `max:1` — it is a switch, not a stack. The count rides on the
+// level-up card, so the last one is never a surprise.
+const GLOBAL_MAX=5;
+const globalMax=id=>(GLOBALS[id]&&GLOBALS[id].max)||GLOBAL_MAX;
+const globalRank=id=>(state.globals&&state.globals[id])||0;
+const globalFull=id=>globalRank(id)>=globalMax(id);
 const PASSIVE_STEP={power:'+5% damage',powerII:'+12% damage',powerIII:'+22% damage',
   crit:'unlocks critical hits',critChance:'+2% chance',critChanceII:'+5% chance',critChanceIII:'+9% chance',
   critPower:'+0.2x multiplier',critPowerII:'+0.5x multiplier',critPowerIII:'+0.9x multiplier',
@@ -2617,7 +2644,8 @@ function buildTree(){
   for(const id of Object.keys(GLOBALS))
     nodes.push({id:'g:'+id,name:GLOBALS[id].name,color:'#9cf0bd',branch:GLOBALS[id].branch||'systems',
       group:GLOBALS[id].branch==='sys2'?'system2':'system',sector:GLOBALS[id].sector,
-      cost:GLOBALS[id].cost,req:GLOBALS[id].req||['w:bow'],desc:GLOBALS[id].desc});
+      cost:GLOBALS[id].cost,req:GLOBALS[id].req||['w:bow'],
+      desc:GLOBALS[id].desc+(globalMax(id)>1?' One run can install it '+globalMax(id)+' times.':'')});
   for(const n of nodes){n.max=n.max||1;if(n.step===undefined)n.step=n.max>1?costStep(n.cost):0;}
   return nodes;
 }
@@ -2745,8 +2773,11 @@ function globalChoices(){
   const out=[];
   for(const id of Object.keys(GLOBALS)){
     if(!treeHas('g:'+id))continue;
-    if(id==='dash'&&(state.globals.dash||!state.hasDash))continue;   // one-off, and pointless without the dash
-    out.push({id,kind:'global',name:GLOBALS[id].name,desc:GLOBALS[id].run});
+    if(id==='dash'&&!state.hasDash)continue;    // pointless without a dash to extend
+    if(globalFull(id))continue;                 // this run has taken all of it it can
+    const nth=globalRank(id)+1, max=globalMax(id);
+    out.push({id,kind:'global',name:GLOBALS[id].name,tag:'SYSTEM '+nth+'/'+max,
+      desc:GLOBALS[id].run+(max>1&&nth===max?' This is the last one this run.':'')});
   }
   return out;
 }
@@ -2768,15 +2799,15 @@ function levelUp(free){
   const ults=shuffle(weaponChoices.filter(u=>u.kind==='ultimate')).slice(0,2);
   const rest=shuffle(weaponChoices.filter(u=>u.kind!=='ultimate').concat(globals));
   const choices=ults.concat(rest).slice(0,3);
-  show('<div class="modal"><div class="eyebrow">'+(free?'FIELD REFIT // PRE-FLIGHT':'REFIT // LEVEL '+state.level)+'</div><h2>Choose an upgrade</h2><p>Each card shows the exact change it will make.</p><div class="cards">'+choices.map((u,i)=>'<div class="card'+(u.kind==='ultimate'?' ultimate':'')+'"><span class="card-key">0'+(i+1)+' // '+(u.kind==='ultimate'?'ULTIMATE':u.kind==='unlock'?'NEW WEAPON':'UPGRADE')+'</span><h3>'+u.name+'</h3><p>'+u.desc+'</p><button data-up="'+u.id+'">INSTALL</button></div>').join('')+'</div></div>');
+  show('<div class="modal"><div class="eyebrow">'+(free?'FIELD REFIT // PRE-FLIGHT':'REFIT // LEVEL '+state.level)+'</div><h2>Choose an upgrade</h2><p>Each card shows the exact change it will make.</p><div class="cards">'+choices.map((u,i)=>'<div class="card'+(u.kind==='ultimate'?' ultimate':'')+'"><span class="card-key">0'+(i+1)+' // '+(u.tag||(u.kind==='ultimate'?'ULTIMATE':u.kind==='unlock'?'NEW WEAPON':'UPGRADE'))+'</span><h3>'+u.name+'</h3><p>'+u.desc+'</p><button data-up="'+u.id+'">INSTALL</button></div>').join('')+'</div></div>');
   document.querySelectorAll('[data-up]').forEach(b=>b.onclick=()=>upgrade(b.dataset.up));
 }
 function upgrade(id){
   if(!state.upgradeOpen)return;
   state.upgradeOpen=false;
   if(GLOBALS[id]){
-    if(id==='dash'&&state.globals.dash){state.paused=false;hide();return;} // one-time only
-    state.globals[id]=(state.globals[id]||0)+1;
+    if(globalFull(id)){state.paused=false;hide();return;}   // already at its cap for this run
+    state.globals[id]=globalRank(id)+1;
     if(id==='health'){player.maxHp+=25;player.hp=player.maxHp;}
     if(id==='hull2'){player.maxHp+=55;player.hp=player.maxHp;}
     if(id==='speed')player.speed*=1.18;
@@ -2827,7 +2858,13 @@ function loadoutMarkup(){
         : '';
     return '<div class="lo-weapon'+(w.ultimate?' maxed':'')+'"><div class="lo-head"><i class="weapon-dot" style="background:'+w.color+'"></i><b>'+w.name+'</b>'+(w.ultimate?'<span class="lo-ult">ULT</span>':'')+'<span class="lo-lvl">'+lvl+'</span></div><ul class="lo-list">'+rows+'</ul>'+foot+'</div>';
   }).join('');
-  const extras=Object.keys(globalInfo).filter(k=>state.globals[k]).map(k=>'<li class="on"><b>'+globalInfo[k][0]+(state.globals[k]>1?' &times;'+state.globals[k]:'')+'</b><span>'+globalInfo[k][1]+'</span></li>').join('')
+  const extras=Object.keys(globalInfo).filter(k=>state.globals[k]).map(k=>{
+    // a stacking system reads as a fraction of what the run will allow, so the
+    // pause menu answers "can I still take another" without counting cards
+    const n=state.globals[k], max=globalMax(k), full=n>=max;   // a one-off is just taken, not "at cap"
+    return '<li class="on'+(full?' capped':'')+'"><b>'+globalInfo[k][0]
+      +(max>1?' &times;'+n+'/'+max:'')+'</b><span>'+globalInfo[k][1]+(full&&max>1?' &mdash; at cap':'')+'</span></li>';
+  }).join('')
     +state.relicsTaken.map(k=>'<li class="on relic"><b>'+relicInfo[k][0]+'</b><span>'+relicLine(k)+'</span></li>').join('');
   const stats='<div class="lo-stats"><span>AREA <b>'+state.room+'</b></span><span>LEVEL <b>'+state.level+'</b></span><span>KILLS <b>'+state.kills+'</b></span><span>HULL <b>'+Math.ceil(player.hp)+'/'+player.maxHp+'</b></span><span>SPEED <b>'+Math.round(player.speed)+'</b></span><span>REGEN <b>'+player.regen.toFixed(0)+'/s</b></span></div>';
   return '<div class="modal wide"><div class="eyebrow">SYSTEM PAUSED</div><h2>Loadout</h2>'+stats
