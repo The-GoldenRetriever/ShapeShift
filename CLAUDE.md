@@ -87,6 +87,7 @@ A **sector** is a whole run's worth of context, and `SECTORS` holds all of it: h
 - `sectorsOpen` (persisted as `shapeshift_sectors`) gates both the picker and the tree: any node carrying `sector: 2` is invisible via `nodeVisible` until that sector is open. Clearing `FINAL_ROOM` on hard opens the next one, in `runCleared`. `showTree()` draws the whole V2 half (ARMAMENTS V2 / SYSTEMS V2 / AMPLIFIERS V2) only when `sectorOpen(2)`; otherwise it prints one sealed panel in its place.
 - Sector 3 (`UNCHARTED`) exists today only as a `soon: true` reel preview — no spawn pool, no boss order, no `sky`.
 - `skyFor()` caches the star field and deck gradient **per sector** and throws them away when it changes — a new sector palette needs no other wiring.
+- A sector's `sky` also carries its scenery flags: `haze` paints drifting burning bands, and `hulks: true` puts a burning shipping container through the far background every `HULK_GAP` seconds (`updateHulks`/`drawHulks`, parallax `HULK_PF`). Both are drawn *behind* the deck and are pure decoration — nothing can shoot them and they cannot touch the player.
 - Adding a sector: a `SECTORS` entry, a `SECTOR_SPAWNS` pool, a `SECTOR_BOSSES` order, and whatever `sector: <id>` nodes it should open on the tree. Set `soon: true` to put it on the reel as a locked preview.
 
 ### Death is deferred to the end of the frame
@@ -186,6 +187,7 @@ Tuning lives in data tables near the top of `game.js` rather than in code — pr
 | `HULLS`, `HULL_OF`, `PLANES`, `PLANE_SCALE` | the unit-space polygon each pilot's ship is drawn from, and the `plane` class that scales it |
 | `weaponData`, `weaponUpgrades`, `ultimateData` | weapon base stats, the five upgrades each, and the ultimate |
 | `DMG_UPGRADE` | which upgrade carries each weapon's visual signature — the one edit needed if an upgrade is renamed or the look moves to a different one |
+| `HULK_GAP`, `HULK_PF`, `HULK_MAX` | the drift's burning-container scenery: seconds between wrecks, how far off they ride, and how many may be in the sky at once |
 | `SECTORS`, `SECTOR_SPAWNS`, `SECTOR_BOSSES` | per-sector scaling curves, boss order and sky palette, plus the spawn pool: one row per shape, `from` (first area it appears in), `base` weight and `growth` (negative = fades out as areas climb). There is no single global spawn table — every sector carries its own |
 | `SECTOR2_WEAPONS`, `WALL_SPEED`, `WALL_LEG` | which armaments the second sector opens, and how far a PHALANX WALL throws |
 | `DASH_SHEAR`, `DASH_SHOVE` | what SHEAR DRIVE's two ranks do to what the dash passes through |

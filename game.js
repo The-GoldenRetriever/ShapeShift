@@ -240,7 +240,7 @@ const SECTORS=[
     color:'#ff5f8d',
     sky:{ stars:['#5c2740','#b04d6b','#ffdce6'],
           deck:['rgba(86,22,44,.44)','rgba(50,14,30,.26)','rgba(18,6,13,0)'],
-          band:'rgba(226,72,110,', rim:'#4a2333', edge:'#ff5f8d', haze:'#ff3d6e' } },
+          band:'rgba(226,72,110,', rim:'#4a2333', edge:'#ff5f8d', haze:'#ff3d6e', hulks:true } },
   { id:3, name:'UNCHARTED', short:'SECTOR 03', req:3, soon:true,
     blurb:'Beyond the drift the charts run out.',
     line:'Coming soon.' }
@@ -586,6 +586,7 @@ function reset(difficulty = 'medium') {
   enemies = []; arrows = []; enemyBullets = []; stars = []; particles = []; blasts = []; delayedBlasts = []; echoShots = []; damageNumbers = []; strikes = []; rings = []; pulses = []; beams = []; mines = []; wells = []; rockets = []; walls = []; dashGhosts = [];
   state = { difficulty, last: performance.now(), time: 0, room: 1, level: 1, xp: 0, need: 60, kills: 0, left: 0, spawnIn: 0, active: true, paused: false, upgradeOpen: false, intermission: false, transitioning: false, roomTransition: 0, exit: null, relicRooms: {}, globals: {}, relicsTaken: [], relicOpen: false, relicDraw: null, enemyPace: 1, armor: 1, siphon: 0, thorns: 0, magnet: 0, vacuum: false, beatBest: false, over: false, dying: 0, hitStop: 0, beatIn: 0, lowPulse: 0, knockX: 0, knockY: 0, knockT: 0, paidCredits: 0, portalArm: 0, history: [], echo: null, cloakTime: 0, cloakCooldown: 0, bowIn: 0, laserIn: 0, bombIn: 0, mineIn: 0, missileIn: 0, phalanxIn: 0, dashCooldown: 0, dashTime: 0, dashX: 0, dashY: 0, dashPower: 1, dashCd: 3, pulseCooldown: 0, pulseCd: 10, arcIn: 0, character: STARTER, charXp: 1, charDamage: 1, lastMoveX: 1, lastMoveY: 0, shake: 0, playerAlpha: 1, screenAlpha: 0, cameraZoom: 1, zoomCenterX: RW/2, zoomCenterY: RH/2, victoryPortal: null, victorySequence: null, victoryTimer: 0, roomBanner: null, cameraRot: 0, flash: 0, warp: null, suckR: 0, suckA: 0, suckDir: 1, portalCharge: 0, hurtFlash: 0, weapons: { bow: { name: 'VULCAN CANNON', color: '#55e6ff', damage: 2, rate: 1.3, level: 0, upgrades: 0, taken: [], ultimate: false } } };
   state.sector=sectorOpen(chosenSector)?chosenSector:1;
+  resetHulks();
   state.character=chosen;
   state.charXp=c.xp||1;
   state.charDamage=(c.damage||1)*treeDamage();
@@ -920,6 +921,7 @@ function update(dt,real) {
   real=real||dt;
   camera();
   state.time+=dt;
+  updateHulks(dt);
   if(state.roomBanner){state.roomBanner.life-=dt;if(state.roomBanner.life<=0)state.roomBanner=null;}
   state.hurtFlash=Math.max(0,(state.hurtFlash||0)-dt*2.4);
   state.shake=Math.max(0,state.shake-state.shake*Math.min(1,real*6.4)-real*2);   // framerate-independent falloff
@@ -3411,6 +3413,7 @@ function skyFor(){
                 makeStarLayer(100,.8,1.6,sec.sky.stars[1]),
                 makeStarLayer(sec.id===1?55:74,1.2,2.3,sec.sky.stars[2])];
     deckGrad=null;
+    resetHulks();
   }
   return sec;
 }
@@ -3421,6 +3424,7 @@ function drawBackground(){
   drawStarLayer(starLayers[1],.28);
   drawStarLayer(starLayers[2],.52);
   ctx.globalAlpha=1;
+  if(sec.sky.hulks)drawHulks();
   if(sec.sky.haze)drawHaze(sec);
   drawDeck();
   drawWalls();
@@ -3438,6 +3442,111 @@ function drawHaze(sec){
     g.addColorStop(1,rgba(sec.sky.haze,0));
     ctx.fillStyle=g;ctx.fillRect(drift-430,y-430,860,860);
   }
+  ctx.restore();
+}
+// CRIMSON DRIFT is a shipping lane that collapsed and never stopped burning, so
+// every so often a container tumbles through the far background, still alight.
+// Pure scenery: it rides the star layers' parallax, sits behind the deck, and
+// nothing in the fight can touch it or be touched by it.
+const HULK_GAP=[15,44];      // seconds between wrecks — wide, so they never read as a metronome
+const HULK_PF=.34;           // share of the camera's motion that reaches them, i.e. how far off they are
+const HULK_MAX=2;            // a lane of wreckage, not a scrapyard
+let hulks=[],hulkIn=0;
+function resetHulks(){hulks=[];hulkIn=rand(6,HULK_GAP[1]*.5);}
+function spawnHulk(){
+  // the drifting field is the room seen through the parallax, so a wreck is
+  // aimed across that span rather than across the room proper
+  const vw=(RW-W)*HULK_PF+W, vh=(RH-H)*HULK_PF+H, dir=Math.random()<.5?1:-1;
+  hulks.push({
+    x:dir>0?-620:vw+620, y:rand(-90,vh+90),
+    vx:rand(30,72)*dir, vy:rand(-15,15),
+    rot:rand(0,7), spin:rand(.05,.22)*(Math.random()<.5?1:-1),
+    len:rand(78,132), t:0, seed:rand(0,7), vw
+  });
+}
+function updateHulks(dt){
+  if(!sector().sky.hulks){if(hulks.length)hulks.length=0;return;}
+  hulkIn-=dt;
+  if(hulkIn<=0){hulkIn=rand(HULK_GAP[0],HULK_GAP[1]);if(hulks.length<HULK_MAX)spawnHulk();}
+  for(const h of hulks){h.x+=h.vx*dt;h.y+=h.vy*dt;h.rot+=h.spin*dt;h.t+=dt;}
+  hulks=hulks.filter(h=>h.x>-900&&h.x<h.vw+900);
+}
+// a container box, nose-less: chewed open at +x, which is the end the fire is in
+const HULK_BODY=[[-1,-.28],[.86,-.28],[1,-.17],[.8,-.05],[1.04,.04],[.78,.16],[.96,.28],[-1,.28]];
+function drawHulks(){
+  ctx.save();
+  ctx.translate(camX*(1-HULK_PF),camY*(1-HULK_PF));   // only HULK_PF of the camera's motion reaches them
+  for(const h of hulks)drawHulk(h);
+  ctx.restore();
+}
+function drawHulk(h){
+  const L=h.len, flick=.72+Math.sin(h.t*9+h.seed)*.16+Math.sin(h.t*23.7+h.seed*2)*.09;
+  // smoke and embers stream in world space, off the burning end and behind the drift
+  const ca=Math.cos(h.rot), sa=Math.sin(h.rot);
+  const fx=h.x+ca*L, fy=h.y+sa*L;                     // the torn end, where the fire is
+  const sp=Math.hypot(h.vx,h.vy)||1, ux=-h.vx/sp, uy=-h.vy/sp;
+  ctx.save();
+  ctx.globalCompositeOperation='lighter';
+  for(let i=0;i<9;i++){
+    const age=((h.t*.55+i/9)%1);                       // one puff per slot, recycled as it ages out
+    const d=age*(230+L*1.6), s=14+age*(52+L*.3), a=(1-age)*.10;
+    const wob=Math.sin(h.seed+i*2.1+h.t*1.3)*age*46;
+    const px=fx+ux*d-uy*wob, py=fy+uy*d+ux*wob;
+    const g=ctx.createRadialGradient(px,py,0,px,py,s);
+    g.addColorStop(0,'rgba(255,126,70,'+(a*1.5).toFixed(3)+')');
+    g.addColorStop(1,'rgba(255,60,90,0)');
+    ctx.fillStyle=g;ctx.fillRect(px-s,py-s,s*2,s*2);
+  }
+  for(let i=0;i<7;i++){                                // embers thrown clear of the wreck
+    const age=((h.t*.9+i*.1379)%1);
+    const d=age*(300+L*2), wob=Math.sin(h.seed*3+i*4.7+h.t*2.2)*age*70;
+    const px=fx+ux*d-uy*wob, py=fy+uy*d+ux*wob, r=(1-age)*2.2;
+    ctx.globalAlpha=(1-age)*.5*flick;
+    ctx.fillStyle=i%3?'#ff8b3d':'#ffd08a';
+    ctx.beginPath();ctx.arc(px,py,Math.max(.4,r),0,7);ctx.fill();
+  }
+  ctx.restore();
+  ctx.save();
+  ctx.translate(h.x,h.y);ctx.rotate(h.rot);
+  // hull: a rusted box lit from the fire end, dim enough that it can never hide a shape
+  ctx.globalAlpha=.58;
+  ctx.beginPath();
+  for(let i=0;i<HULK_BODY.length;i++){const x=HULK_BODY[i][0]*L,y=HULK_BODY[i][1]*L;i?ctx.lineTo(x,y):ctx.moveTo(x,y);}
+  ctx.closePath();
+  const body=ctx.createLinearGradient(-L,0,L,0);
+  body.addColorStop(0,'#241019');
+  body.addColorStop(.62,'#4a1c22');
+  body.addColorStop(1,'#8a3320');
+  ctx.fillStyle=body;ctx.fill();
+  ctx.save();ctx.clip();
+  ctx.strokeStyle='rgba(12,6,10,.55)';ctx.lineWidth=Math.max(1,L*.022);
+  ctx.beginPath();
+  for(let x=-L*.88;x<L*.95;x+=L*.11){ctx.moveTo(x,-L*.3);ctx.lineTo(x,L*.3);}  // corrugation
+  ctx.stroke();
+  ctx.strokeStyle='rgba(255,160,110,.20)';ctx.lineWidth=Math.max(1,L*.018);
+  ctx.beginPath();
+  ctx.moveTo(-L,-L*.23);ctx.lineTo(L*.82,-L*.23);                              // top rail catching the light
+  ctx.moveTo(-L,L*.23);ctx.lineTo(L*.78,L*.23);                                // bottom rail
+  ctx.stroke();
+  ctx.strokeStyle='rgba(10,5,8,.6)';ctx.lineWidth=Math.max(1,L*.03);
+  ctx.beginPath();ctx.moveTo(-L*.93,-L*.3);ctx.lineTo(-L*.93,L*.3);            // door end, still shut
+  ctx.moveTo(-L*.8,-L*.3);ctx.lineTo(-L*.8,L*.3);ctx.stroke();
+  ctx.restore();
+  ctx.globalAlpha=1;
+  ctx.strokeStyle='rgba(255,120,80,.35)';ctx.lineWidth=1.2;ctx.stroke();
+  // fire in the torn end, and glowing splits down the side it opened along
+  ctx.globalCompositeOperation='lighter';
+  const core=(x,y,r,a)=>{
+    const g=ctx.createRadialGradient(x,y,0,x,y,r);
+    g.addColorStop(0,'rgba(255,226,170,'+(a*.9).toFixed(3)+')');
+    g.addColorStop(.35,'rgba(255,132,54,'+(a*.6).toFixed(3)+')');
+    g.addColorStop(1,'rgba(255,48,86,0)');
+    ctx.fillStyle=g;ctx.fillRect(x-r,y-r,r*2,r*2);
+  };
+  core(L*.84,0,L*.86,.42*flick);
+  core(L*.88,-L*.08,L*.28,.5*flick);
+  core(L*.15,L*.2,L*.24,.22*flick);     // a split further down the hull
+  core(-L*.52,-L*.22,L*.18,.16*flick);
   ctx.restore();
 }
 const LOW_HP=.35;   // the border starts creeping in below this share of hull
