@@ -1805,7 +1805,11 @@ function weapons(dt) {
       const t=nearest();
       if(t){
         spawnMine(w,t.x,t.y);
-        if(w.multi){
+        // twin charges pay out every other deploy: doubling every cycle filled
+        // the cap faster than the field could ever be spent. Counted on deploys,
+        // not on time, so a lull in targets never banks up a free double.
+        w.twinTick=!w.twinTick;
+        if(w.multi&&w.twinTick){
           const second=enemies.filter(e=>liveTarget(e)&&e!==t&&onScreen(e)).sort((a,b)=>dist(a,player)-dist(b,player))[0];
           if(second)spawnMine(w,second.x,second.y);
         }
@@ -2308,9 +2312,18 @@ function finishRoom(){
 // a short arm delay so a player standing on the spawn point isn't swallowed
 // instantly, and the remnant sweep has time to land
 function openPortal(){state.victoryPortal={x:RW/2,y:RH/2,r:34};state.portalArm=.7;}
+// nothing crosses the warp with you. Rounds still in the air, deployed mines and
+// walls, the dash trail, the drift's burning wrecks — all of it belongs to the
+// area you just left, so arriving reads as a clean teleport instead of a cut
+// with the last area's debris still hanging in it.
+function clearField(){
+  for(const list of [arrows,enemyBullets,echoShots,rockets,walls,mines,wells,particles,blasts,
+    delayedBlasts,strikes,rings,pulses,beams,damageNumbers,dashGhosts])list.length=0;
+  resetHulks();
+}
 function nextRoom(){
   if(state.room>=FINAL_ROOM){runCleared();return;}   // there is no area 51 to fly to
-  state.room++;player.x=RW/2;player.y=RH/2;player.vx=0;player.vy=0;state.history=[];beginRoom();
+  state.room++;clearField();player.x=RW/2;player.y=RH/2;player.vx=0;player.vy=0;state.history=[];beginRoom();
 }
 // the run ends here rather than rolling on: the sector is clear, so it is banked,
 // closed out, and you are asked what to fly next
@@ -2519,7 +2532,7 @@ const weaponUpgrades={
     ['mine-radius','WIDE COLLAPSE','Pull and blast radius +70, and the well holds 4 more enemies at once.'],
     ['mine-power','DENSE CORE','Detonation damage +4.'],
     ['mine-haste','RAPID DEPLOY','Mines deploy 35% more often.'],
-    ['mine-multi','TWIN CHARGES','A second mine drops on the next-nearest target each cycle.'],
+    ['mine-multi','TWIN CHARGES','Every other deploy drops a second mine on the next-nearest target.'],
     ['mine-crush','CRUSH DEPTH','Enemies dragged into the core take 75% more damage, and survivors are hurled outward.']
   ]
 };
@@ -2733,7 +2746,7 @@ function critHit(dmg){
 // BEAM to become a damage weapon: .4 a tick at 5 ticks/s is 2 dps stock, and
 // the one upgrade nearly triples it. Early it is steady chip damage that never
 // misses; late it is the reason the build exists.
-const weaponData={laser:['PHOTON LANCE','#c879ff',.4,5],bomb:['PLASMA TORPEDO','#ff965d',3,.4],sword:['ORBITAL BLADE','#ffe17a',4,1],aegis:['DEFLECTOR SHIELD','#7ee0ff',1.5,1],arc:['ION ARC','#c8a2ff',3,1.05],mine:['GRAVITY MINE','#9d6bff',4,.55],
+const weaponData={laser:['PHOTON LANCE','#c879ff',.4,5],bomb:['PLASMA TORPEDO','#ff965d',3,.4],sword:['ORBITAL BLADE','#ffe17a',4,1],aegis:['DEFLECTOR SHIELD','#7ee0ff',1.5,1],arc:['ION ARC','#c8a2ff',3,1.05],mine:['GRAVITY MINE','#9d6bff',4,.4],
   // SECTOR 02 hardware: one hits like nothing else and reloads like nothing else,
   // the other barely scratches but clears the space around you outright
   missile:['WARHEAD SALVO','#ff7a4d',11,.3],phalanx:['PHALANX WALL','#6ef0c4',3,.75]};
@@ -5371,8 +5384,7 @@ function devClearTree(){
 function devJumpToArea(room){
   if(!state||state.over)return;
   const target=clamp(Math.round(room)||1,1,FINAL_ROOM);
-  for(const list of [enemies,arrows,enemyBullets,particles,blasts,delayedBlasts,echoShots,damageNumbers,
-    strikes,rings,pulses,beams,mines,wells,rockets,walls,dashGhosts])list.length=0;
+  enemies.length=0;clearField();
   state.room=target;
   state.victoryPortal=null;state.victorySequence=null;state.warp=null;state.portalArm=0;
   state.transitioning=false;state.intermission=false;state.exit=null;state.vacuum=false;
