@@ -147,19 +147,74 @@ const types = {
   wraith:   { hp: 360, speed: 40,  r: 54, color: '#b26bff', xp: 380, sides: 4 },
   leviathan:{ hp: 480, speed: 34,  r: 94, color: '#ff2f6a', xp: 520, sides: 8 }
 };
+// ---- the threat index ------------------------------------------------------
+// what each hull is called on the recognition chart and what it does to you. The
+// keys are the same shape ids `types` uses, and the first-sector names are simply
+// the hull class it is drawn from (HULL_OF) — a chart names an aircraft by its
+// silhouette. Nothing here is read during a run; it is the index's only source of
+// wording, so a shape's card and its behaviour cannot drift apart in two places.
+const CODEX = {
+  square:   { name:'DRONE',       role:'CHASER',
+    line:'The cheapest hull in the sector, flown in numbers. It carries no guns at all — it closes on you and rams.' },
+  triangle: { name:'INTERCEPTOR', role:'CHASER',
+    line:'Nearly twice the pace of a drone on a fraction of the plating. One hit ends it; the trouble is how many arrive at once.' },
+  hex:      { name:'CRUISER',     role:'CHASER',
+    line:'Heavier plating, slower approach. It soaks the fire meant for the swarm moving around it.' },
+  trap:     { name:'HAULER',      role:'BATTERING',
+    line:'Slow, thick, and heavy enough that a collision lands harder than the hull size suggests. Harder settings sharpen that impact rather than the approach.' },
+  bowtie:   { name:'GUNSHIP',     role:'GUNBOAT',
+    line:'Will not close. It holds a standoff range, strafes across it, and throws single aimed rounds on the SENTINEL pattern.' },
+  diamond:  { name:'RACER',       role:'RUNNER',
+    line:'The only hull in the first sector that outruns a stock airframe. It cannot take a hit — it simply gets to you before anything else does.' },
+  pentagon: { name:'DREADNOUGHT', role:'BULK',
+    line:'A slab of hull that never stops walking toward you, and hits like one. Nothing else in the first sector takes as long to bring down.' },
+  prism:    { name:'CORVETTE',    role:'CHASER',
+    line:'Fast for its plating, and it arrives with the late-area crowd rather than on its own.' },
+  seeker:   { name:'FRIGATE',     role:'MISSILE BOAT',
+    line:'Sits at range and launches homing rounds that turn hard enough to follow you out of a turn. Kill it or break line — you will not outrun the missile.' },
+  raker:    { name:'BARGE',       role:'LANE PAINTER',
+    line:'Stands well off and paints a burning lane across the floor. The lane outlives the volley that drew it, so the ground it covers stays lethal long after the shot.' },
+  sentry:   { name:'SENTRY',      role:'GUNBOAT',
+    line:'The SENTINEL pattern rebuilt at fighter scale and flown in numbers. Holds range and fires the same three-round volley the area-10 boss of the first sector opens with.' },
+  stalker:  { name:'STALKER',     role:'MISSILE BOAT',
+    line:'Slower rounds than a frigate fires, but they turn harder — and there is rarely only one of them in the air.' },
+  bastion:  { name:'BASTION',     role:'BULK',
+    line:'The wall of the drift. It crawls, it does not come down quickly, and it hits with everything its mass is worth.' },
+  dart:     { name:'DART',        role:'RUNNER',
+    line:'The fastest thing in the game and the flimsiest thing in it. A single hit ends a dart, if you can put one on it.' },
+  picket:   { name:'PICKET',      role:'SCREEN',
+    line:'Puts itself between you and whatever fragile thing is shooting at you. It blocks nothing — it simply parks where your guns are already looking, so the escort gets shot first and the gunboat behind it keeps firing.' },
+  splitter: { name:'SPLITTER',    role:'CARRIER',
+    line:'Does not die so much as come apart: killing it releases three darts on the spot. Killing it in your own lap is the mistake.' },
+  scorcher: { name:'SCORCHER',    role:'LANE PAINTER',
+    line:'A barge with a heavier torch — two lanes to a volley, and each one burns for nearly twice as long.' },
+  pyre:     { name:'PYRE',        role:'LANE PAINTER',
+    line:'Three lanes at once, burning the better part of ten seconds each. A pyre does not shoot at you so much as take the floor away.' }
+};
 // one boss per ten rooms, cycling once the roster is exhausted.
 // hpMult trades bulk against how dangerous each one's pattern is.
+// `note` is the long form the threat index prints once you have flown against
+// one; `blurb` is the one-line banner the area opens on.
 const bossOrder = [
-  { id:'sentinel', name:'SENTINEL', hpMult:1,    contact:28, blurb:'Volleys and charges' },
-  { id:'lance',    name:'LANCE',    hpMult:.78,  contact:34, blurb:'Charges hard, seeds homing orbs' },
-  { id:'orbiter',  name:'ORBITER',  hpMult:1.18, contact:26, blurb:'Orbital strikes and a gravity tether' },
-  { id:'beacon',   name:'BEACON',   hpMult:.95,  contact:24, blurb:'Sweeping beams, blinks away' },
-  { id:'hollow',   name:'HOLLOW',   hpMult:.86,  contact:30, blurb:'Shields itself, calls escorts, rings' },
+  { id:'sentinel', name:'SENTINEL', hpMult:1,    contact:28, blurb:'Volleys and charges',
+    note:'The baseline. It walks at you throwing five-round volleys, and every few seconds commits to a short charge.' },
+  { id:'lance',    name:'LANCE',    hpMult:.78,  contact:34, blurb:'Charges hard, seeds homing orbs',
+    note:'A fast pursuer that winds up visibly before it commits to a straight charge — that tell is the window to time your own dash. Between charges it stops to seed homing orbs.' },
+  { id:'orbiter',  name:'ORBITER',  hpMult:1.18, contact:26, blurb:'Orbital strikes and a gravity tether',
+    note:'Keeps its distance and rains telegraphed strikes on the ground you are standing on. Stray too far and it tethers you back in, so the bombardment cannot be outrun.' },
+  { id:'beacon',   name:'BEACON',   hpMult:.95,  contact:24, blurb:'Sweeping beams, blinks away',
+    note:'A lighthouse. Rotating beams deny half the floor at a time, and it blinks to fresh ground the moment you corner it.' },
+  { id:'hollow',   name:'HOLLOW',   hpMult:.86,  contact:30, blurb:'Shields itself, calls escorts, rings',
+    note:'Shields itself, calls escorts and throws rings.' },
   // ---- the drift's rotation ------------------------------------------------
-  { id:'monolith', name:'MONOLITH', hpMult:2,    contact:34, blurb:'A wall of hull that fires from every face' },
-  { id:'shrike',   name:'SHRIKE',   hpMult:.85,  contact:26, blurb:'Fast hull, faster rounds' },
-  { id:'breacher', name:'BREACHER', hpMult:1.15, contact:38, blurb:'Slow? Be Ready' },
-  { id:'wraith',   name:'WRAITH',   hpMult:.85,  contact:24, blurb:'Blinks out, blinks in on top of you' }
+  { id:'monolith', name:'MONOLITH', hpMult:2,    contact:34, blurb:'A wall of hull that fires from every face',
+    note:'The heaviest hull on any rotation, firing from every face. Its waves come rotated half a gap off each other, so the lane that was safe a moment ago is the one the next wave fires down. Standing off it is not free either — it aims a three-shot between bursts.' },
+  { id:'shrike',   name:'SHRIKE',   hpMult:.85,  contact:26, blurb:'Fast hull, faster rounds',
+    note:'The fastest hull in the drift firing the fastest rounds in it. It rides a strafing band spitting paired shots, then commits to a raking pass that lays fire out of both flanks instead of ahead of it.' },
+  { id:'breacher', name:'BREACHER', hpMult:1.15, contact:38, blurb:'Slow? Be Ready',
+    note:'It crawls, and then it does not. The lunge is telegraphed and juke-able; what kills you is the burst it sheds the moment it stops — so the safe ground is behind it, not away from it.' },
+  { id:'wraith',   name:'WRAITH',   hpMult:.85,  contact:24, blurb:'Blinks out, blinks in on top of you',
+    note:'Never where you last shot at it. It blinks off a wound, blinks in on top of you to empty a clip, and blinks straight back out — so damage has to be spent the moment it arrives.' }
 ];
 // ---- sectors ---------------------------------------------------------------
 // a sector is a whole run's worth of context: how steeply the curve climbs, which
@@ -197,9 +252,11 @@ const sector=()=>sectorDef(state&&state.sector?state.sector:chosenSector);
 // MOTHERSHIP is what the roster has been building toward.
 const FINAL_ROOM=50;
 const MOTHERSHIP={ id:'mothership', name:'MOTHERSHIP', hpMult:1.15, contact:34,
-  blurb:'Shells you from range, never stops launching' };
+  blurb:'Shells you from range, never stops launching',
+  note:'The only boss that never comes to you. It sits at the far edge of the view shelling the ground you stand on while its bays keep the floor full. Closing that distance, and staying closed, is the whole fight.' };
 const LEVIATHAN={ id:'leviathan', name:'LEVIATHAN', hpMult:1.35, contact:36,
-  blurb:'Spirals the room shut, then opens up' };
+  blurb:'Spirals the room shut, then opens up',
+  note:'What the drift has been building toward. It cycles three patterns that deny different ground: a rotating fountain you walk the gaps of, a closing volley, and a wind-up that pays out in rings. At half hull it stops taking turns and runs all three harder.' };
 // every sector ends on a fight of its own, and none of them are on the rotation
 const SECTOR_FINALE={ 1:MOTHERSHIP, 2:LEVIATHAN };
 const finaleBoss=()=>SECTOR_FINALE[sector().id]||MOTHERSHIP;
@@ -242,7 +299,7 @@ const characters = {
 const SAVE_VERSION='2';
 const SAVE_KEYS=['shapeshift_best_room','shapeshift_hard_beaten','shapeshift_points',
   'shapeshift_unlocked','shapeshift_character','shapeshift_run','shapeshift_skill','shapeshift_tree',
-  'shapeshift_sectors','shapeshift_sector'];
+  'shapeshift_sectors','shapeshift_sector','shapeshift_seen'];
 if(localStorage.getItem('shapeshift_version')!==SAVE_VERSION){
   for(const k of SAVE_KEYS)localStorage.removeItem(k);
   localStorage.setItem('shapeshift_version',SAVE_VERSION);
@@ -254,6 +311,16 @@ let unlocked = new Set([STARTER]);
 (localStorage.getItem('shapeshift_unlocked')||'').split(',').forEach(id=>{if(characters[id])unlocked.add(id);});
 let chosen = characters[localStorage.getItem('shapeshift_character')] ? localStorage.getItem('shapeshift_character') : STARTER;
 if(!unlocked.has(chosen)) chosen=STARTER;
+// every hull you have actually met, kept across runs: the threat index prints a
+// blank silhouette for anything not in here. Logged where a hostile enters the
+// area rather than where it dies, so flying past one still identifies it.
+let seenFoes = new Set((localStorage.getItem('shapeshift_seen')||'').split(',').filter(id=>types[id]));
+function seeFoe(id){
+  if(!id||seenFoes.has(id))return;
+  seenFoes.add(id);
+  if(devMode)return;                       // dev mode is a sandbox: the real chart is untouched
+  try{ localStorage.setItem('shapeshift_seen',[...seenFoes].join(',')); }catch(e){}
+}
 let devMode=false, devBackup=null;
 let sectorsOpen = new Set([1]);
 (localStorage.getItem('shapeshift_sectors')||'').split(',').forEach(id=>{const n=parseInt(id,10);if(sectorDef(n)&&!sectorDef(n).soon)sectorsOpen.add(n);});
@@ -662,6 +729,7 @@ function enemyHp(spec){
 function spawn() {
   const name=type(), spec=types[name], p=edge();
   const hp = enemyHp(spec);
+  seeFoe(name);
   enemies.push({type:name,x:p.x,y:p.y,hp,maxHp:hp,r:spec.r,shoot:rand(1,3),phase:Math.random()*7,flash:0,slowT:0,slowAmt:0,rot:ang(p,player),born:state.time,numIn:0});
 }
 // the top-left readout reports the area you are flying. Outside a run there is no
@@ -702,6 +770,7 @@ function spawnBoss(){
   enemies.push({type:def.id,bossId:def.id,contact:def.contact,x:RW/2,y:220,hp,maxHp:hp,r:spec.r,
     shoot:1.1,phase:0,flash:0,slowT:0,slowAmt:0,boss:true,rot:0,born:state.time,numIn:0,
     mode:'idle',timer:1.2,beamRot:0,shield:0,adds:0,blinkT:0});
+  seeFoe(def.id);
   state.bossName=def.name;
 }
 // weapons only acquire what is on screen — no sniping something you cannot see
@@ -1422,6 +1491,7 @@ bossBehaviour.leviathan=function(e,dt,difficulty,spec,a){
 function spawnAt(name,x,y){
   const spec=types[name];if(!spec)return null;
   const hp=enemyHp(spec);
+  seeFoe(name);
   const e={type:name,x,y,hp,maxHp:hp,r:spec.r,shoot:rand(1,3),phase:Math.random()*7,flash:0,slowT:0,slowAmt:0,
     rot:ang({x,y},player),born:state.time,numIn:0};
   enemies.push(e);
@@ -4295,6 +4365,55 @@ function tpoly(g,x,y,r,n,rot,fill){
   g.closePath();
   if(fill){g.fillStyle=fill;g.fill();}
 }
+// the manual flies what the game flies: the player's own airframe off PLANES and
+// the real hostile outlines off HULLS, at card scale. Nothing here knows about
+// the run -- `chosen` is the pilot sitting in the hangar, so the manual teaches
+// you in the aircraft you are about to take up.
+const manualPlane=()=>PLANES[(characters[chosen]||characters[STARTER]).plane]||PLANES.fighter;
+const manualColor=()=>(characters[chosen]||characters[STARTER]).color;
+function demoPlane(g,x,y,r,rot,alpha,thrust,hot){
+  const P=manualPlane(), pts=P.pts, a=alpha==null?1:alpha, col=hot?'#ffffff':manualColor();
+  g.save();
+  g.translate(x,y);g.rotate(rot);
+  g.globalAlpha=a;
+  if(thrust){
+    const tail=pts[pts.length-1][0]*r;
+    g.save();g.globalCompositeOperation='lighter';
+    for(const j of P.jets){
+      const jy=j*r, len=r*(.6+thrust*.75), w=r*.15;
+      g.globalAlpha=a*.5;g.fillStyle=col;
+      g.beginPath();g.moveTo(tail,jy-w);g.lineTo(tail-len,jy);g.lineTo(tail,jy+w);g.closePath();g.fill();
+    }
+    g.restore();
+  }
+  g.shadowColor=col;g.shadowBlur=hot?18:11;
+  g.fillStyle=col;
+  g.beginPath();
+  g.moveTo(pts[0][0]*r,0);
+  for(let i=1;i<pts.length;i++)g.lineTo(pts[i][0]*r,pts[i][1]*r);
+  for(let i=pts.length-2;i>0;i--)g.lineTo(pts[i][0]*r,-pts[i][1]*r);
+  g.closePath();g.fill();
+  g.shadowBlur=0;
+  g.fillStyle='rgba(6,9,16,.55)';
+  g.beginPath();g.ellipse(r*.72,0,r*.3,r*.14,0,0,7);g.fill();
+  g.restore();
+}
+function demoHull(g,x,y,r,rot,type,alpha,hot){
+  const sp=types[type], pts=HULLS[HULL_OF[type]||'pod'], a=alpha==null?1:alpha;
+  const trace=()=>{g.beginPath();for(let i=0;i<pts.length;i++){const px=pts[i][0]*r,py=pts[i][1]*r;i?g.lineTo(px,py):g.moveTo(px,py);}g.closePath();};
+  g.save();
+  g.translate(x,y);g.rotate(rot);
+  g.globalAlpha=a;
+  g.shadowColor=sp.color;g.shadowBlur=hot?20:9;
+  g.fillStyle=hot?'#ffffff':sp.color;
+  trace();g.fill();
+  g.shadowBlur=0;
+  g.fillStyle='#0a1120';
+  g.beginPath();g.ellipse(r*.35,0,r*.22,r*.14,0,0,7);g.fill();
+  g.globalAlpha=a*.4;g.strokeStyle='#e8f4ff';g.lineWidth=1;
+  trace();g.stroke();
+  g.restore();
+}
 function demoBg(g){
   g.fillStyle='#0a1120';g.fillRect(0,0,DEMO_W,DEMO_H);
   g.strokeStyle='#16233a';g.lineWidth=1;g.beginPath();
@@ -4320,32 +4439,33 @@ const demos=[
       demoBg(g);
       // a lap that uses every direction, so each key lights when it is actually held
       const legs=[
-        {t0:0,   t1:.8,  x0:44, y0:88, x1:116,y1:88, k:'D'},
-        {t0:.8,  t1:1.45,x0:116,y0:88, x1:116,y1:38, k:'W'},
-        {t0:1.45,t1:2.15,x0:116,y0:38, x1:52, y1:38, k:'A'},
-        {t0:2.15,t1:2.8, x0:52, y0:38, x1:52, y1:88, k:'S'},
-        {t0:2.8, t1:3.2, x0:52, y0:88, x1:104,y1:88, k:'D'},
-        {t0:3.2, t1:3.5, x0:104,y0:88, x1:238,y1:88, k:'D', dash:true}
+        {t0:0,   t1:.8,  x0:44, y0:80, x1:116,y1:80, k:'D'},
+        {t0:.8,  t1:1.45,x0:116,y0:80, x1:116,y1:34, k:'W'},
+        {t0:1.45,t1:2.15,x0:116,y0:34, x1:52, y1:34, k:'A'},
+        {t0:2.15,t1:2.8, x0:52, y0:34, x1:52, y1:80, k:'S'},
+        {t0:2.8, t1:3.2, x0:52, y0:80, x1:104,y1:80, k:'D'},
+        {t0:3.2, t1:3.5, x0:104,y0:80, x1:238,y1:80, k:'D', dash:true}
       ];
       const at=time=>{
-        if(time<=0)return {x:legs[0].x0,y:legs[0].y0,k:'',dash:false};
+        if(time<=0)return {x:legs[0].x0,y:legs[0].y0,h:0,k:'',dash:false,moving:false};
         for(const l of legs){
           if(time<l.t1){
             const f=clamp((time-l.t0)/(l.t1-l.t0),0,1);
-            return {x:lerp(l.x0,l.x1,f),y:lerp(l.y0,l.y1,f),k:l.k,dash:!!l.dash};
+            return {x:lerp(l.x0,l.x1,f),y:lerp(l.y0,l.y1,f),h:Math.atan2(l.y1-l.y0,l.x1-l.x0),
+              k:l.k,dash:!!l.dash,moving:true};
           }
         }
         const last=legs[legs.length-1];
-        return {x:last.x1,y:last.y1,k:'',dash:false};
+        return {x:last.x1,y:last.y1,h:Math.atan2(last.y1-last.y0,last.x1-last.x0),k:'',dash:false,moving:false};
       };
       const now=at(t);
-      for(let i=1;i<=8;i++){
-        const p=at(t-i*.042);
-        g.globalAlpha=.17*(1-i/9);
-        dot(g,p.x,p.y,9*(1-i/10),'#55e6ff');
+      // the trail is the airframe itself, the way the dash records it in flight
+      for(let i=1;i<=7;i++){
+        const p=at(t-i*.05);
+        demoPlane(g,p.x,p.y,7*(1-i/13),p.h,.16*(1-i/8));
       }
       g.globalAlpha=1;
-      dot(g,now.x,now.y,9,now.dash?'#ffffff':'#dff6ff','#55e6ff');
+      demoPlane(g,now.x,now.y,7,now.h,1,now.moving?(now.dash?1:.55):0,now.dash);
       // WASD laid out the way it sits under your hand
       keycap(g,54,101,'W',now.k==='W');
       keycap(g,32,122,'A',now.k==='A');
@@ -4369,23 +4489,24 @@ const demos=[
     draw(g,t){
       demoBg(g);
       const px=58,py=71;
-      const foes=[{x:206,y:44,ph:0},{x:222,y:104,ph:1.5}];
+      const foes=[{x:206,y:44,ph:0,t:'square'},{x:222,y:104,ph:1.5,t:'triangle'}];
       for(const f of foes){
-        const dead=((t+f.ph)%3)>2.4;
-        if(!dead){g.globalAlpha=1;tpoly(g,f.x,f.y,12,4,Math.PI/4,'#ff6387');}
-        else {g.globalAlpha=Math.max(0,1-(((t+f.ph)%3)-2.4)/.6);
-          for(let i=0;i<6;i++){const a=i*1.05;dot(g,f.x+Math.cos(a)*18,f.y+Math.sin(a)*18,2,'#ff6387');}}
+        const cycle=(t+f.ph)%3, dead=cycle>2.4, col=types[f.t].color;
+        if(!dead){g.globalAlpha=1;demoHull(g,f.x,f.y,13,Math.atan2(py-f.y,px-f.x),f.t,1,cycle>2.28);}
+        else {g.globalAlpha=Math.max(0,1-(cycle-2.4)/.6);
+          for(let i=0;i<6;i++){const a=i*1.05;dot(g,f.x+Math.cos(a)*18,f.y+Math.sin(a)*18,2,col);}}
       }
       g.globalAlpha=1;
       for(let i=0;i<3;i++){
         const k=((t*1.3+i/3)%1);
         const tgt=foes[i%2];
         const ax=lerp(px,tgt.x,k), ay=lerp(py,tgt.y,k);
-        g.save();g.globalAlpha=.85;g.strokeStyle='#55e6ff';g.lineWidth=2.4;g.lineCap='round';
+        g.save();g.globalAlpha=.85;g.strokeStyle=manualColor();g.lineWidth=2.4;g.lineCap='round';
         g.beginPath();g.moveTo(ax-9,ay-(tgt.y-py)/(tgt.x-px)*9);g.lineTo(ax,ay);g.stroke();g.restore();
       }
-      tpoly(g,px,py,11,6,0,'#dff6ff');
-      dot(g,px,py,4,'#ffffff','#55e6ff');
+      // the nose swings to whatever the guns picked, which is the whole point
+      const lock=foes[Math.floor(t*1.3)%2];
+      demoPlane(g,px,py,8,Math.atan2(lock.y-py,lock.x-px),1,.35);
     }},
   { title:'REMNANTS LEVEL YOU UP', period:4,
     text:'Kills drop ✦ remnants. Collect them to level, and each level offers three upgrades.',
@@ -4399,8 +4520,7 @@ const demos=[
         tpoly(g,0,0,8,5,-Math.PI/2,'#ffe17a');
         g.restore();
       }
-      tpoly(g,px,py,11,6,0,'#dff6ff');
-      dot(g,px,py,4,'#ffffff','#55e6ff');
+      demoPlane(g,px,py,8,t<2.1?Math.atan2(sy-py,sx-px):-Math.PI/2,1,.3);
       const fill=t<2.1?t/2.1*.8:(t<2.6?.8+ (t-2.1)/.5*.2:1);
       g.fillStyle='#19273a';g.fillRect(30,116,210,8);
       g.fillStyle='#35c9eb';g.fillRect(30,116,210*Math.min(1,fill),8);
@@ -4458,11 +4578,10 @@ const demos=[
       }
       g.restore();
       if(t>1.1){
-        const k=Math.min(1,(t-1.1)/2.1);
-        const r=42*Math.pow(1-k,1.6), a=k*k*11;
-        const px=cx+Math.cos(a)*r, py=cy+Math.sin(a)*r;
-        g.globalAlpha=1-Math.max(0,(k-.86)/.14);
-        tpoly(g,px,py,9*(1-k*.5),6,0,'#dff6ff');
+        const spiral=k=>{const r=42*Math.pow(1-k,1.6), a=k*k*11;return {x:cx+Math.cos(a)*r,y:cy+Math.sin(a)*r};};
+        const k=Math.min(1,(t-1.1)/2.1), at=spiral(k), was=spiral(Math.max(0,k-.02));
+        demoPlane(g,at.x,at.y,8*(1-k*.45),Math.atan2(at.y-was.y,at.x-was.x),
+          1-Math.max(0,(k-.86)/.14),.6);
         g.globalAlpha=1;
       }
       g.save();
@@ -4486,7 +4605,8 @@ const demos=[
       g.beginPath();g.arc(0,0,40,0,7);g.stroke();
       g.restore();
       const flash=(t*6)%1<.18;
-      tpoly(g,cx,cy,27,8,t*.4,flash?'#ffffff':'#ff4f9a');
+      // the area-10 capital, drawn off the same outline the arena draws it from
+      demoHull(g,cx,cy,22,Math.PI/2+Math.sin(t*1.3)*.1,'sentinel',1,flash);
       g.fillStyle='#1d2738';g.fillRect(cx-34,cy-40,68,5);
       g.fillStyle='#ff4f9a';g.fillRect(cx-34,cy-40,68*hp,5);
       g.save();
@@ -4528,13 +4648,13 @@ const touchMoveDemo={ title:'FLY & DASH', period:4.6,
       return {x:last.x1,y:last.y1,dx:0,dy:0,dash:false};
     };
     const now=at(t);
-    for(let i=1;i<=8;i++){
-      const p=at(t-i*.042);
-      g.globalAlpha=.17*(1-i/9);
-      dot(g,p.x,p.y,9*(1-i/10),'#55e6ff');
+    const head=p=>Math.atan2(p.dy,p.dx);
+    for(let i=1;i<=7;i++){
+      const p=at(t-i*.05);
+      demoPlane(g,p.x,p.y,7*(1-i/13),head(p),.16*(1-i/8));
     }
     g.globalAlpha=1;
-    dot(g,now.x,now.y,9,now.dash?'#ffffff':'#dff6ff','#55e6ff');
+    demoPlane(g,now.x,now.y,7,head(now),1,(now.dx||now.dy)?(now.dash?1:.55):0,now.dash);
     // the stick, bottom left, held over exactly the way it is being flown
     const sx=38,sy=112,sr=19;
     g.save();
@@ -4625,6 +4745,7 @@ function showHome(){
         : '<button class="continue big" id="homePlay">PLAY</button>')
       +'<button class="continue ghost" id="homeTree">OVERHAUL BAY'+(treeAffordable()?' <em class="pip">'+treeAffordable()+'</em>':'')+'</button>'
       +'<button class="continue ghost" id="homeHow">HOW TO PLAY</button>'
+      +'<button class="continue ghost" id="homeIndex">THREAT INDEX</button>'
       +'<button class="continue ghost" id="homeRoster">HANGAR'+(affordableCount()?' <em class="pip">'+affordableCount()+'</em>':'')+'</button>'
     +'</div>'
   +'</div>');
@@ -4651,6 +4772,7 @@ function showHome(){
     showHome();
   };
   $('#homeHow').onclick=()=>{sfx('ui');confirmingNew=confirmingDrop=false;showHowTo();};
+  $('#homeIndex').onclick=()=>{sfx('ui');confirmingNew=confirmingDrop=false;showIndex();};
   $('#homeRoster').onclick=()=>{sfx('ui');confirmingNew=confirmingDrop=false;showRoster();};
 }
 const affordableCount=()=>Object.keys(characters).filter(id=>!unlocked.has(id)&&points>=characters[id].cost).length;
@@ -4693,6 +4815,161 @@ function showRoster(){
   });
   $('#rosterBack').onclick=showHome;
 }
+// ---- the threat index ------------------------------------------------------
+// a recognition chart: every hull in the game drawn from the same HULLS outline
+// the arena draws it from, blank until you have actually flown against one.
+// Nothing here is hand-listed -- the craft come out of SECTOR_SPAWNS and the
+// capitals out of the rotation, so a new shape or a new boss charts itself.
+let indexTab='craft';
+// the hangar's trick, on an enemy outline: HULLS points are already a closed
+// silhouette with the nose at +x, so it is only the quarter turn that stands it
+// nose-up on the card. An unidentified hull is the outline and nothing else --
+// no canopy, no engine lights, no colour.
+function hullSvg(id,known){
+  const pts=HULLS[HULL_OF[id]||'pod'], col=known?types[id].color:'#1e2a3e';
+  const turn=p=>[p[1],-p[0]], poly=pts.map(turn);
+  let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+  for(const p of poly){x0=Math.min(x0,p[0]);x1=Math.max(x1,p[0]);y0=Math.min(y0,p[1]);y1=Math.max(y1,p[1]);}
+  const n=v=>v.toFixed(2), pad=.26;
+  const vb=[x0-pad,y0-pad,(x1-x0)+pad*2,(y1-y0)+pad*2].map(n).join(' ');
+  let detail='';
+  if(known){
+    const cp=turn([.35,0]);
+    detail='<ellipse class="foe-canopy" cx="'+n(cp[0])+'" cy="'+n(cp[1])+'" rx=".14" ry=".22"/>';
+    for(const side of [-1,1]){
+      const q=turn([-.9,side*.32]);
+      detail+='<circle class="foe-light" cx="'+n(q[0])+'" cy="'+n(q[1])+'" r=".09"/>';
+    }
+    // the marking a SENTRY carries in the arena, kept on its plate
+    if(types[id].ring)detail+='<circle class="foe-ring" cx="0" cy="0" r=".62"/>';
+  }
+  return '<svg class="foe-ship" viewBox="'+vb+'" preserveAspectRatio="xMidYMid meet" aria-hidden="true">'
+    +'<polygon class="foe-hull" points="'+poly.map(p=>n(p[0])+','+n(p[1])).join(' ')+'" fill="'+col+'"/>'
+    +detail+'</svg>';
+}
+// every shape any sector can spawn, charted once, under the first sector that
+// flies it -- half the drift's roster is the first sector's, and listing those
+// twice would read as twice the game
+function foeGroups(){
+  const charted=new Set(), out=[];
+  for(const sec of SECTORS){
+    const list=SECTOR_SPAWNS[sec.id]; if(!list)continue;
+    const ids=[];
+    for(const row of list.slice().sort((a,b)=>a.from-b.from)){
+      if(charted.has(row.t))continue;
+      charted.add(row.t);ids.push(row.t);
+    }
+    if(ids.length)out.push({sec,ids});
+  }
+  return out;
+}
+const foeSectors=id=>SECTORS.filter(sec=>sectorOpen(sec.id)&&(SECTOR_SPAWNS[sec.id]||[]).some(r=>r.t===id));
+const foeFrom=(id,secId)=>{const r=(SECTOR_SPAWNS[secId]||[]).find(x=>x.t===id);return r?r.from:1;};
+// which fight holds which area of a sector the menus are not necessarily in.
+// Same arithmetic bossForRoom does, which is why a rotation's fifth entry never
+// appears: areas 10-40 come off the rotation and area 50 is the finale.
+function bossChart(secId){
+  const roster=(SECTOR_BOSSES[secId]||SECTOR_BOSSES[1]).map(id=>bossOrder.find(b=>b.id===id)).filter(Boolean);
+  const out=[];
+  if(roster.length)for(let room=10;room<FINAL_ROOM;room+=10)out.push({room,def:roster[(room/10-1)%roster.length]});
+  out.push({room:FINAL_ROOM,def:SECTOR_FINALE[secId]||MOTHERSHIP});
+  return out;
+}
+// five pips, square-rooted so the middle of the roster still separates: on a
+// straight ratio every fighter in the game reads as one pip next to a BASTION
+function foePips(v,max){
+  const n=clamp(Math.round(Math.sqrt(clamp(v/(max||1),0,1))*5),1,5);
+  let out='';
+  for(let i=0;i<5;i++)out+='<i class="foe-pip'+(i<n?' on':'')+'"></i>';
+  return out;
+}
+// the full roster prices the pips, so a plate does not change meaning when a
+// sector opens; the tally only counts what is actually on screen
+const indexCraft=()=>foeGroups().reduce((a,g)=>a.concat(g.ids),[]);
+const indexPool=craft=>craft
+  ? foeGroups().filter(g=>sectorOpen(g.sec.id)).reduce((a,g)=>a.concat(g.ids),[])
+  : indexBossDefs().filter(d=>SECTORS.some(sec=>sectorOpen(sec.id)&&bossChart(sec.id).some(r=>r.def.id===d.id))).map(d=>d.id);
+const indexBossDefs=()=>{
+  const out=[];
+  for(const sec of SECTORS)if(SECTOR_SPAWNS[sec.id])
+    for(const row of bossChart(sec.id))if(!out.some(d=>d.id===row.def.id))out.push(row.def);
+  return out;
+};
+// the pips are read against the whole roster, so a card means the same thing
+// wherever it sits. Worked out once per screen rather than once per plate.
+function indexScale(){
+  const craft=indexCraft(), bosses=indexBossDefs();
+  return { hp:Math.max.apply(null,craft.map(id=>types[id].hp)),
+           speed:Math.max.apply(null,craft.map(id=>types[id].speed)),
+           bossHp:Math.max.apply(null,bosses.map(d=>types[d.id].hp*d.hpMult)),
+           impact:Math.max.apply(null,bosses.map(d=>d.contact)) };
+}
+function foeCard(id,scale){
+  const c=CODEX[id]||{name:id.toUpperCase(),role:'HOSTILE',line:''}, sp=types[id], known=seenFoes.has(id);
+  // the group heading already names the sector this plate sits under, so only a
+  // second sector it also flies in is worth spelling out
+  const where=foeSectors(id).map((sec,i)=>(i?sec.short+' area ':'from area ')+foeFrom(id,sec.id)).join(' &middot; ');
+  return '<div class="foe'+(known?'':' unknown')+'" style="--foe:'+(known?sp.color:'#39496a')+'">'
+    +'<div class="foe-art">'+hullSvg(id,known)+'</div>'
+    +'<div class="foe-head"><b>'+(known?c.name:'UNIDENTIFIED')+'</b><span class="foe-tag">'+(known?c.role:'NO CONTACT')+'</span></div>'
+    +'<p class="foe-line">'+(known?c.line:'Nothing on this hull but its outline. Fly against one and the plate fills in.')+'</p>'
+    +(known?'<div class="foe-meta"><span>HULL <em class="foe-pips">'+foePips(sp.hp,scale.hp)+'</em></span>'
+      +'<span>SPEED <em class="foe-pips">'+foePips(sp.speed,scale.speed)+'</em></span></div>':'')
+    +'<div class="foe-where">'+where+'</div>'
+  +'</div>';
+}
+function bossCard(row,scale,sec){
+  const def=row.def, sp=types[def.id], known=seenFoes.has(def.id), finale=row.room===FINAL_ROOM;
+  return '<div class="foe boss'+(known?'':' unknown')+(finale?' finale':'')+'" style="--foe:'+(known?sp.color:'#39496a')+'">'
+    +'<div class="foe-art">'+hullSvg(def.id,known)+'</div>'
+    +'<div class="foe-head"><b>'+(known?def.name:'UNIDENTIFIED')+'</b><span class="foe-tag">'+(finale?'FINALE':'AREA '+row.room)+'</span></div>'
+    +'<p class="foe-line">'+(known?(def.note||def.blurb):'Nothing on this hull but its outline. Hold area '+row.room+' and the plate fills in.')+'</p>'
+    +(known?'<div class="foe-meta"><span>HULL <em class="foe-pips">'+foePips(sp.hp*def.hpMult,scale.bossHp)+'</em></span>'
+      +'<span>IMPACT <em class="foe-pips">'+foePips(def.contact,scale.impact)+'</em></span></div>':'')
+    +'<div class="foe-where">'+sec.short+' &middot; area '+row.room+(finale?' &middot; ends the sector':'')+'</div>'
+  +'</div>';
+}
+function showIndex(){
+  setInRun(false);
+  closeHowTo();
+  const craft=indexTab==='craft', scale=indexScale();
+  const pool=indexPool(craft);
+  const found=pool.filter(id=>seenFoes.has(id)).length;
+  const section=(title,note,body)=>'<div class="tbranch"><div class="tb-head"><b>'+title+'</b><span>'+note+'</span></div>'
+    +'<div class="foes">'+body+'</div></div>';
+  const sealed=sec=>'<div class="tbranch locked-branch"><div class="tb-head"><b>'+sec.name+'</b>'
+    +'<span>sealed until you reach it</span></div>'
+    +'<p class="tree-gate">Nothing out there has been charted yet. Clear area '+FINAL_ROOM+' of '+sectorDef(1).name+' on HARD to open '+sec.name+'.</p></div>';
+  let body='';
+  if(craft){
+    for(const g of foeGroups()){
+      body+=sectorOpen(g.sec.id)
+        ? section(g.sec.name,g.sec.id===1?'the hulls you meet first':'the hulls this sector adds',
+            g.ids.map(id=>foeCard(id,scale)).join(''))
+        : sealed(g.sec);
+    }
+  }else{
+    for(const sec of SECTORS){
+      if(!SECTOR_SPAWNS[sec.id])continue;
+      body+=sectorOpen(sec.id)
+        ? section(sec.name,'one every ten areas, and the fight that ends it',
+            bossChart(sec.id).map(row=>bossCard(row,scale,sec)).join(''))
+        : sealed(sec);
+    }
+  }
+  show('<div class="modal wide">'
+    +'<div class="eyebrow">THREAT INDEX</div><h2>Recognition charts</h2>'
+    +'<p>Every hull is an outline until you meet one in the air. Fly against it and its plate is filled in for good.</p>'
+    +'<div class="index-tabs">'
+      +'<button'+(craft?' class="on"':'')+' data-tab="craft">CRAFT</button>'
+      +'<button'+(craft?'':' class="on"')+' data-tab="boss">CAPITALS</button>'
+      +'<span>IDENTIFIED <b>'+found+' / '+pool.length+'</b></span></div>'
+    +body
+    +'<button class="continue ghost" id="indexBack">BACK</button>'
+  +'</div>');
+  document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{sfx('ui');indexTab=b.dataset.tab;showIndex();});
+  $('#indexBack').onclick=showHome;
+}
 // the footer reads from the same source whether or not a run is in progress
 function paintBest(){ui.best.textContent=highscore;}
 function resetSavedData(){
@@ -4703,8 +4980,9 @@ function resetSavedData(){
   localStorage.removeItem('shapeshift_character');
   localStorage.removeItem('shapeshift_skill');
   localStorage.removeItem('shapeshift_tree');
+  localStorage.removeItem('shapeshift_seen');
   clearRun();
-  highscore=1;points=0;skill=0;tree={};unlocked=new Set([STARTER]);chosen=STARTER;
+  highscore=1;points=0;skill=0;tree={};unlocked=new Set([STARTER]);chosen=STARTER;seenFoes=new Set();
   paintBest();
 }
 // cycled with the arrow keys or the chevrons either side. Locked entries stay on
@@ -4907,7 +5185,7 @@ function showTree(){
 function enterDev(){
   if(devMode)return;
   devBackup={points,skill,highscore,chosen,unlocked:new Set(unlocked),tree:Object.assign({},tree),
-    sectorsOpen:new Set(sectorsOpen),chosenSector,touchMode};
+    sectorsOpen:new Set(sectorsOpen),chosenSector,touchMode,seenFoes:new Set(seenFoes)};
   devMode=true;
   for(const id of Object.keys(characters))unlocked.add(id);
   toast('DEVELOPER MODE ON');
@@ -4917,7 +5195,7 @@ function exitDev(){
   devMode=false;
   points=devBackup.points;skill=devBackup.skill;highscore=devBackup.highscore;
   chosen=devBackup.chosen;unlocked=devBackup.unlocked;tree=devBackup.tree;
-  sectorsOpen=devBackup.sectorsOpen;chosenSector=devBackup.chosenSector;
+  sectorsOpen=devBackup.sectorsOpen;chosenSector=devBackup.chosenSector;seenFoes=devBackup.seenFoes;
   setTouchMode(devBackup.touchMode);      // whatever the device itself asked for
   devManual=null;                         // and the manual goes back to teaching it
   devBackup=null;

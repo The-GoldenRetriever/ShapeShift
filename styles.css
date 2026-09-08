@@ -385,3 +385,50 @@ body.touch.fs-on .fs-controls .icon-btn{width:42px;height:38px;font-size:15px}
 body.fs-on .arena-label{left:152px}
 body.touch.fs-on .arena-label{left:168px}
 body.touch.fs-on .weapon-hud{top:calc(env(safe-area-inset-top,0px) + 60px)}
+
+/* ---- threat index -------------------------------------------------------
+   A recognition chart, so it reads like one: the plate is the silhouette, and
+   an unidentified hull is drawn as nothing but its outline -- no colour, no
+   canopy, no engine lights. `--foe` carries the shape's own colour, the same
+   way `--pilot` carries a pilot's in the hangar, so one variable per card
+   drives the glow, the rule and the pips. Sections reuse .tbranch/.tb-head
+   from the bay: the two screens are the same kind of catalogue. */
+.index-tabs{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:9px;margin:-8px 0 22px;
+  font:10px 'DM Mono',monospace;letter-spacing:.14em;color:#6d7c96}
+.index-tabs button{background:#0f1626;border:1px solid #2a3b56;color:#8798b3;font:10px 'DM Mono',monospace;
+  letter-spacing:.16em;padding:7px 16px;border-radius:4px}
+.index-tabs button:hover{border-color:#3c5f7d;color:#bcd4ee}
+.index-tabs button.on{border-color:var(--cyan);color:#c5f4ff;background:#132235;box-shadow:0 0 16px #55e6ff22}
+.index-tabs span{margin-left:6px}
+.index-tabs b{color:#d6e4f8;font-weight:400;margin-left:5px}
+.foes{display:grid;grid-template-columns:repeat(auto-fit,minmax(214px,1fr));gap:11px;text-align:left}
+.foe{background:#101827;border:1px solid #2a3b56;border-radius:5px;padding:13px;display:flex;flex-direction:column;
+  border-top:2px solid var(--foe)}
+.foe-art{display:flex;align-items:center;justify-content:center;height:78px;margin:-1px 0 10px;border-radius:4px;
+  background:radial-gradient(ellipse at 50% 58%,color-mix(in srgb,var(--foe) 15%,transparent),transparent 66%)}
+.foe-ship{width:100%;height:100%;overflow:visible}
+.foe-ship .foe-hull{filter:drop-shadow(0 0 3px var(--foe))}
+.foe-ship .foe-canopy{fill:rgba(6,9,16,.6)}
+.foe-ship .foe-light{fill:#ffffff;opacity:.75}
+.foe-ship .foe-ring{fill:none;stroke:#ffffff;stroke-width:.05;stroke-dasharray:.16 .12;opacity:.45}
+.foe-head{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.foe-head b{font-size:12px;letter-spacing:.08em;color:#dbe7fc}
+.foe-tag{margin-left:auto;font:9px 'DM Mono',monospace;color:#7d8ca7;border:1px solid #2f4159;border-radius:3px;padding:2px 5px;white-space:nowrap}
+.foe-line{font-size:11px;line-height:1.5;color:#91a0b9;margin:0 0 10px}
+.foe-meta{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:auto;font:9px 'DM Mono',monospace;letter-spacing:.13em;color:#66748e}
+.foe-meta span{display:flex;align-items:center;gap:6px}
+.foe-pips{display:inline-flex;align-items:center;font-style:normal}
+.foe-pip{width:5px;height:5px;border-radius:50%;background:#22304a;display:inline-block;margin-right:2px}
+.foe-pip.on{background:var(--foe);box-shadow:0 0 6px var(--foe)}
+.foe-where{margin-top:9px;padding-top:8px;border-top:1px solid #1d2940;font:9px 'DM Mono',monospace;letter-spacing:.12em;color:#55637c}
+/* nothing met yet: the outline, and the fact that there is nothing else */
+.foe.unknown{border-top-color:#2a3b56;background:#0d1422}
+.foe.unknown .foe-head b{color:#5d6b85;letter-spacing:.16em}
+.foe.unknown .foe-line{color:#6b7a93;font-style:italic}
+.foe.unknown .foe-ship .foe-hull{filter:none;stroke:#3d5273;stroke-width:.05}
+/* a capital gets the room its plate is worth, and the finale is called out */
+.foe.boss .foe-art{height:96px}
+.foe.finale{box-shadow:0 0 22px color-mix(in srgb,var(--foe) 16%,transparent)}
+.foe.finale .foe-tag{border-color:var(--foe);color:var(--foe)}
+@media(max-width:700px){.foes{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+  .foe{padding:10px}.foe-art{height:62px}.foe.boss .foe-art{height:74px}.foe-line{font-size:10px}}

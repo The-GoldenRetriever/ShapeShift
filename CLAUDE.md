@@ -121,6 +121,18 @@ When `state.left === 0 && enemies.length === 0`, `finishRoom()` clears all hosti
 
 All menus are HTML strings passed to `show()`, which sets `#overlay`'s `innerHTML` and re-binds handlers by `id` / `data-*` attribute. The in-game HUD is DOM, not canvas: `hud()` runs at the end of every `update` and writes into the `ui` element map. The "how to play" screen (`demos`) is the exception — animated canvases rendered per card.
 
+The manual's cards draw the **real silhouettes**, not placeholder polygons: `demoPlane` reads `PLANES` through `manualPlane()` (the pilot sitting in the hangar, so the manual teaches you in the aircraft you are about to fly) and `demoHull` reads `HULLS`/`HULL_OF` for hostiles. `tpoly` survives only for things that genuinely are polygons — XP remnants and upgrade pips.
+
+### The threat index
+
+THREAT INDEX on the home screen (`showIndex`) is a recognition chart: every hull in the game, **blank until you have flown against one**. Two tabs — CRAFT and CAPITALS — held in `indexTab`.
+
+- `seenFoes` (persisted as `shapeshift_seen`) is the set of hulls met. `seeFoe(id)` is called from the three places a hostile enters a room — `spawn`, `spawnAt`, `spawnBoss` — so flying past one identifies it; it does not need to die. Like every other persistence call it no-ops on disk under `devMode`, and `enterDev`/`exitDev` back the set up and restore it.
+- `hullSvg(id, known)` is `planeSvg`'s trick on an enemy outline: `HULLS` points are already a closed silhouette nosed at +x, so only the quarter turn is applied. An unidentified hull is the outline and nothing else — no colour, no canopy, no engine lights.
+- Nothing is hand-listed. The craft come out of `SECTOR_SPAWNS` via `foeGroups()` (each shape charted once, under the first sector that flies it, so the drift's half of the roster is not listed twice), and the capitals out of `bossChart(sec)`, which repeats `bossForRoom`'s arithmetic — areas 10–40 off the rotation, area 50 the finale. That is why a rotation's unreachable fifth entry (sector 1's `hollow`) never appears on the chart either.
+- A sealed sector gets one locked panel instead of its plates, and neither the tally nor a plate's "flies in" line counts it — `indexPool` and `foeSectors` both filter on `sectorOpen`. The **pips** deliberately do not: `indexScale()` prices them against the whole roster so a plate does not change meaning when a sector opens.
+- Wording lives in `CODEX` (craft) and each boss's `note` (capitals). Nothing there is read during a run.
+
 ### The dash animation is a readout of the dash
 
 `drawDashFx()` draws the dash in independent layers, each gated on a flag from `dashKit()` — `coils` (`state.dashPower > 1`, from SLIPSTREAM COILS or a pilot perk), `shear` and `shove` (SHEAR DRIVE's two ranks). The silhouette trail and launch ring are the bare drive; coils add a second ring and slipstream streaks; `shear` etches a white outline onto every afterimage and puts cutting edges on the hull; `shove` throws a bow shock ahead of the nose. `dashTier()` is just the count of installed layers, and drives the things that scale smoothly rather than switching on — launch shake, particle count, ghost lifetime, thrust.
@@ -142,7 +154,7 @@ The trail lives in `dashGhosts`, aged on `dt` (so it stretches under hit-stop) b
 
 ### Persistence
 
-`localStorage` keys, all prefixed `shapeshift_`: `_best_room`, `_points`, `_unlocked`, `_character`, `_hard_beaten`, `_skill`, `_tree`, `_sectors` (which sectors are open), `_sector` (the one the menus point at), `_sound`, `_run`, `_version`. Everything except `_sound` and `_version` is in `SAVE_KEYS` — `_sound` deliberately survives a version wipe.
+`localStorage` keys, all prefixed `shapeshift_`: `_best_room`, `_points`, `_unlocked`, `_character`, `_hard_beaten`, `_skill`, `_tree`, `_sectors` (which sectors are open), `_sector` (the one the menus point at), `_seen` (hulls identified for the threat index), `_sound`, `_run`, `_version`. Everything except `_sound` and `_version` is in `SAVE_KEYS` — `_sound` deliberately survives a version wipe.
 
 **Two independent version numbers, easy to confuse:**
 - `SAVE_VERSION` (currently `'2'`) versions the *profile*. On load, if `shapeshift_version` doesn't match, every key in `SAVE_KEYS` is deleted — a one-time wipe. Bump it only when a change makes old progress meaningless; anything new that must survive a wipe-free upgrade also needs adding to `SAVE_KEYS`.
@@ -161,9 +173,10 @@ Tuning lives in data tables near the top of `game.js` rather than in code — pr
 | Table | Controls |
 |---|---|
 | `types` | per-shape hp / speed / radius / colour / xp / sides, plus `hold` for standoff gunboats, `guard` for screens, and `splits`/`splitInto` for shapes that come apart on death (hp and speed are multipliers on the 100hp, 288px/s baseline) |
+| `CODEX` | the threat index's wording for every non-boss shape: chart `name` (the first sector's are its `HULL_OF` class, the way a recognition chart names an aircraft by its silhouette), one-word `role` tag, and the `line` that says what it does to you. Bosses carry the same thing as `note` on their `bossOrder` / finale row |
 | `BEAM_ENEMIES`, `BEAM_CAP` | the lane-painting family (`raker` → `scorcher` → `pyre`): lanes per volley, burn time, reach, damage and reload, plus the hard ceiling on how many lanes may be on the floor at once |
 | `GUARD_LEAD`, `GUARD_KEEP`, `GUARD_REACH` | how far in front of its ward a screen sits, how close to you it will come, and how far it will travel to cover something |
-| `bossOrder`, `MOTHERSHIP`, `LEVIATHAN`, `SECTOR_FINALE` | the shared rotation pool for areas 10–40 (`hpMult`, contact damage, blurb), the two area-50 finales that sit off it, and which sector ends on which |
+| `bossOrder`, `MOTHERSHIP`, `LEVIATHAN`, `SECTOR_FINALE` | the shared rotation pool for areas 10–40 (`hpMult`, contact damage, `blurb` for the area banner, `note` for the threat index), the two area-50 finales that sit off it, and which sector ends on which |
 | `RELICS` | the boss-relic pool: card text, pause-menu line, and the `apply` that grants it |
 | `difficulties` | hp / speed / dmg / heavy / credits / mass / mix multipliers, plus `shot` and `shotLife` for enemy projectile speed and lifetime |
 | `characters` | pilot roster: cost, hp & speed multipliers, exclusive `weapon`, perks, hull silhouette. A `perks` entry may be a **function** when the wording depends on the control scheme — PARAGON's shockwave line reads `ctrlWave()` — the same escape hatch `RELICS` has for `desc`/`line` |
@@ -205,11 +218,11 @@ Because the script is flat, one feature spreads across many functions. Miss a st
 
 Also add it to the weapon id list in `buildTree()`, and to `showTree()`'s ARMAMENTS list — or to `SECTOR2_WEAPONS`, which routes it into the ARMAMENTS V2 section and hides it until sector 2 is open. Add to `exclusiveWeapons` if it belongs to one pilot and must never appear in the level-up draw.
 
-**A new enemy shape:** `types` entry (`hold` makes it a gunboat, `guard` makes it a screen, `ring` is the SENTRY marking, `splits`+`splitInto` makes it burst into something on death) → a `SECTOR_SPAWNS` row in whichever sectors it flies in, with `from` area and `growth` → a `HULL_OF` entry, or it draws with the default `pod` silhouette → any attack pattern in `moveEnemy` → `enemyPath` / `drawEnemies` if it needs art of its own.
+**A new enemy shape:** `types` entry (`hold` makes it a gunboat, `guard` makes it a screen, `ring` is the SENTRY marking, `splits`+`splitInto` makes it burst into something on death) → a `SECTOR_SPAWNS` row in whichever sectors it flies in, with `from` area and `growth` → a `HULL_OF` entry, or it draws with the default `pod` silhouette → a `CODEX` entry, or the threat index prints its raw id → any attack pattern in `moveEnemy` → `enemyPath` / `drawEnemies` if it needs art of its own. Nothing else is needed for the index: it charts itself off `SECTOR_SPAWNS`.
 
 A **new grade of lane-painter** is just a `BEAM_ENEMIES` row plus the `types` and `SECTOR_SPAWNS` entries — the firing code is table-driven, so nothing in `moveEnemy` changes. A **new splitter** needs no new code either: `deaths()` queues shrapnel and spawns it after the sweep reassigns `enemies`, and flags each child `split` so shrapnel cannot itself split.
 
-**A new boss:** `types` entry → `HULL_OF` entry (or it draws as the default `pod`) → `bossOrder` row plus a place in some sector's `SECTOR_BOSSES`, or a standalone def wired into `SECTOR_FINALE` if it ends a sector → a handler in `bossBehaviour` → art in `drawBossArt`. Only the first four entries of a rotation are ever reached, so a fifth is dead content. A boss that spawns adds should tag them `escortOf` — `deaths()` culls a dead boss's escorts so an area cannot end in a mop-up.
+**A new boss:** `types` entry → `HULL_OF` entry (or it draws as the default `pod`) → `bossOrder` row (with a `note` for the threat index) plus a place in some sector's `SECTOR_BOSSES`, or a standalone def wired into `SECTOR_FINALE` if it ends a sector → a handler in `bossBehaviour` → art in `drawBossArt`. Only the first four entries of a rotation are ever reached, so a fifth is dead content. A boss that spawns adds should tag them `escortOf` — `deaths()` culls a dead boss's escorts so an area cannot end in a mop-up.
 
 **A new relic:** one `RELICS` entry — `name`, `desc` (the card), `line` (the pause-menu readout), and `apply()`, which runs once on claim. `showRelics` draws three at random from whatever the run has not taken, `claimRelic` calls `apply`, and `relicInfo`/`relicLine` are derived from the table, so nothing else needs touching. Two rules: `desc`/`line` may be a **function** when the wording depends on the control scheme (`cloak` reads `ctrlPhase()`), and if `apply` writes a **new** `state` field it has to be added to `reset()`, `storeRun` and `resumeRun` — the ones that only move `player` stats, `state.weapons` or already-saved scalars (`charDamage`, `critChance`, `charXp`, `dashCd`) round-trip for free. Continuous relic behaviour goes in `updateRelics`.
 
