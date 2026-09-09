@@ -764,7 +764,7 @@ function reset(difficulty = 'medium') {
   for(const w of Object.values(state.weapons)) scaleWeapon(w);
   state.hasDraw=hasDraw();
   // FIELD REFIT is spent as ordinary level-up draws, taken before you fly
-  state.freeDraws=treeRank('headstart')+treeRank('headstartII')*2;
+  state.freeDraws=treeRank('headstart')+treeRank('headstartII')*2+treeRank('headstartIII')*5;
   // the opening run carries nothing at all — that is the point of it
   if(prologueBoot){state.prologue=true;state.weapons={};state.hasDraw=false;state.freeDraws=0;}
   beginRoom(); hide();
@@ -3543,7 +3543,11 @@ const PASSIVES={
   guardCore:{name:'BARRIER CORE',branch:'sys3',cost:72,max:3,sector:3,req:['w:bow'],
     desc:'Fits your airframe with the same trick the reach uses: a barrier that eats one hit outright and then recharges. Each rank recharges it faster.'},
   headstartII:{name:'FIELD REFIT II',branch:'sys3',cost:70,max:2,sector:3,req:['w:bow'],reqMax:['headstart'],
-    desc:'Two more refits on the rack before you fly, per rank, once FIELD REFIT is fully taken.'}
+    desc:'Two more refits on the rack before you fly, per rank, once FIELD REFIT is fully taken.'},
+  // the end of the refit line: a whole build's worth of choices handed over
+  // before the first shape is even in the air
+  headstartIII:{name:'FULL REFIT',branch:'sys3',cost:130,max:1,sector:3,req:['w:bow'],reqMax:['headstartII'],
+    desc:'The bay sends you up already rebuilt: five more level-up choices at the start of every run, on top of everything else on this line.'}
 };
 // in-run system upgrades. `run` is the level-up card, `each` the pause-menu line,
 // `desc` the tree tooltip — one definition so the three can never disagree.
@@ -3593,7 +3597,7 @@ const PASSIVE_STEP={power:'+5% damage',powerII:'+12% damage',powerIII:'+22% dama
   powerIV:'+38% damage',critChanceIV:'+14% chance',critPowerIV:'+1.6x multiplier',
   rateIV:'+40% fire rate',speedIII:'+16% speed',
   sunder:'barriers drain +60% faster',overkill:'kills burst for +12% of their hull',
-  guardCore:'one hit absorbed, recharging',headstartII:'+2 opening refits',
+  guardCore:'one hit absorbed, recharging',headstartII:'+2 opening refits',headstartIII:'+5 opening refits',
   dashCourse:'+1 change of heading per dash'};
 function buildTree(){
   const nodes=[];
