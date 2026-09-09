@@ -4027,7 +4027,7 @@ function gameOver(){
   const spEarned=skillOwed();
   state.paidSkill=skillReward(state.room,state.difficulty);
   points+=earned;skill+=spEarned;saveProfile();saveTree();
-  const newlyAffordable=Object.keys(characters).filter(id=>!unlocked.has(id)&&points>=characters[id].cost&&points-earned<characters[id].cost);
+  const newlyAffordable=rosterList().filter(id=>!unlocked.has(id)&&points>=characters[id].cost&&points-earned<characters[id].cost);
   state.paused=true;
   show('<div class="modal"><div class="eyebrow">SIGNAL LOST</div><h2>Run terminated</h2>'
     +'<p>Area '+state.room+' &bull; '+state.kills+' hostiles cleared &bull; flying '+c.name+'</p>'
@@ -6320,35 +6320,33 @@ function showHome(){
   $('#homeIndex').onclick=()=>{sfx('ui');confirmingNew=confirmingDrop=false;showIndex();};
   $('#homeRoster').onclick=()=>{sfx('ui');confirmingNew=confirmingDrop=false;showRoster();};
 }
-// a hull is sealed until the sector that builds it is open. The seal is on
-// acquiring one, not on keeping it: a hull already in the hangar stays flyable
-// however you came by it. Dev mode sees through it like every other sector gate.
+// a hull built in a sector you have not reached is not in the hangar at all —
+// not greyed out, not priced, not there. The seal is on acquiring one rather
+// than on keeping it, so an airframe already yours stays flyable however you
+// came by it, and dev mode sees through it like every other sector gate.
 const pilotSealed=id=>{const c=characters[id];return !!(c&&c.sector&&!unlocked.has(id)&&!sectorOpen(c.sector));};
-const affordableCount=()=>Object.keys(characters).filter(id=>!unlocked.has(id)&&!pilotSealed(id)&&points>=characters[id].cost).length;
+// the roster as it currently exists, which is the only list any screen should read
+const rosterList=()=>Object.keys(characters).filter(id=>!pilotSealed(id));
+const affordableCount=()=>rosterList().filter(id=>!unlocked.has(id)&&points>=characters[id].cost).length;
 function showRoster(){
   setInRun(false);
   closeHowTo();
-  const cards=Object.keys(characters).map(id=>{
+  const roster=rosterList();
+  const cards=roster.map(id=>{
     const c=characters[id], have=unlocked.has(id), active=chosen===id, can=points>=c.cost;
-    // a hull from a sector you have not opened is shown rather than hidden — the
-    // same call the sector reel makes, since what is next is part of the reward.
-    // Credits cannot reach it, so the card says why instead of quoting a price.
-    const sealed=pilotSealed(id);
-    const perks=sealed?'':c.perks.length?'<ul class="pilot-perks">'+c.perks.map(p=>'<li>'+(typeof p==='function'?p():p)+'</li>').join('')+'</ul>':'';
-    const action=sealed?'<button class="pilot-btn locked" disabled>SEALED</button>'
-      :active?'<button class="pilot-btn active" disabled>SELECTED</button>'
+    const perks=c.perks.length?'<ul class="pilot-perks">'+c.perks.map(p=>'<li>'+(typeof p==='function'?p():p)+'</li>').join('')+'</ul>':'';
+    const action=active?'<button class="pilot-btn active" disabled>SELECTED</button>'
       :have?'<button class="pilot-btn" data-pick="'+id+'">SELECT</button>'
       :'<button class="pilot-btn'+(can?' buy':' locked')+'"'+(can?' data-buy="'+id+'"':' disabled')+'>'+(can?'UNLOCK '+c.cost:'LOCKED '+c.cost)+'</button>';
-    return '<div class="pilot'+(active?' on':'')+(have&&!sealed?'':' dim')+(sealed?' sealed':'')+'" style="--pilot:'+(sealed?'#3d4c66':c.color)+'">'
-      +'<div class="pilot-art">'+planeSvg(sealed?Object.assign({},c,{color:'#3d4c66'}):c)+'</div>'
-      +'<div class="pilot-head"><i class="weapon-dot" style="background:'+(sealed?'#3d4c66':c.color)+'"></i><b>'+c.name+'</b>'
-      +(sealed?'<span class="pilot-tag">SEALED</span>':c.tag?'<span class="pilot-tag">'+c.tag+'</span>':'')+'</div>'
-      +'<p class="pilot-blurb">'+(sealed?'Airframes this far past the line are not built where you are flying. Reach '+sectorDef(c.sector).name+' and the hangar opens it.':c.blurb)+'</p>'+perks+action+'</div>';
+    return '<div class="pilot'+(active?' on':'')+(have?'':' dim')+'" style="--pilot:'+c.color+'">'
+      +'<div class="pilot-art">'+planeSvg(c)+'</div>'
+      +'<div class="pilot-head"><i class="weapon-dot" style="background:'+c.color+'"></i><b>'+c.name+'</b>'+(c.tag?'<span class="pilot-tag">'+c.tag+'</span>':'')+'</div>'
+      +'<p class="pilot-blurb">'+c.blurb+'</p>'+perks+action+'</div>';
   }).join('');
   show('<div class="modal wide">'
     +'<div class="eyebrow">HANGAR</div><h2>Aircraft</h2>'
     +'<p>Credits are earned by finishing runs. Deeper rooms and harder settings pay more.</p>'
-    +'<div class="lo-stats"><span>CREDITS <b>'+points+'</b></span><span>UNLOCKED <b>'+unlocked.size+' / '+Object.keys(characters).length+'</b></span></div>'
+    +'<div class="lo-stats"><span>CREDITS <b>'+points+'</b></span><span>UNLOCKED <b>'+unlocked.size+' / '+roster.length+'</b></span></div>'
     +(savedRun?'<p class="pilot-lock">A run is in progress in area '+savedRun.room+'. It keeps flying '+((characters[savedRun.character]||characters[STARTER]).name)+' &mdash; finish or restart it to change aircraft.</p>':'')
     +'<div class="pilots">'+cards+'</div>'
     +'<button class="continue ghost" id="rosterBack">BACK</button>'
@@ -6925,7 +6923,8 @@ const STORY={
       {who:'v',text:'Ask it. Listen — half of what you meet will not take damage until you take something off it first. Barriers. Sustained fire strips them; a round here and a round there does nothing at all.'},
       {who:'v',text:'And it decides where you are allowed to stand. Wells that drag you off your line, screens that hand their barrier to whatever you are shooting at, and things that do not approach so much as arrive.'},
       {who:'v',text:'The bay is open to the whole rack for this: ORBITAL BATTERY, RAIL SPIKE and SENTRY DRONE, a barrier you can fit to your own airframe, and amplifiers cut for exactly what shields out here.'},
-      {who:'v',text:'And if you have not looked lately — every weapon that has reached its ultimate has one overhaul standing behind it. Out here you will want all of them.'}
+      {who:'v',text:'And if you have not looked lately — every weapon that has reached its ultimate has one overhaul standing behind it. Out here you will want all of them.'},
+      {who:'v',text:'The hangar too. Five airframes opened up when this sector did, and the one you are sitting in was not built for this.'}
     ]
   },
   // said over the payout screen the moment a sector opens
@@ -6935,7 +6934,12 @@ const STORY={
       :'Sector clear. You have taken us further out than anything we still have on a chart.'},
     {who:'v',text:sec.id===2
       ?'The CRIMSON DRIFT is open to you, and everything the bay was holding back with it. Go and get refitted before you go and get killed.'
-      :'THE HOLLOW REACH is open. I would tell you what is in there, but I have never had a pilot come back from it to ask.'}
+      :'THE HOLLOW REACH is open. I would tell you what is in there, but I have never had a pilot come back from it to ask.'},
+    ...(sec.id===3?[
+      {who:'v',text:'One more thing, and it is the part I would not have offered you a month ago. There are five airframes in the hangar you have never seen. They were built for what is out past the drift, and until now there was no reason to show them to you.'},
+      {who:'p',text:'Five? I have been flying the same frame since you picked me up.'},
+      {who:'v',text:'You have, and it will not carry you through the reach. Go and look. One of them is what the PARAGON was a draft of — and it is priced like it.'}
+    ]:[])
   ]
 };
 
