@@ -125,20 +125,20 @@ const types = {
   // ---- SECTOR 02 ----------------------------------------------------------
   // the SENTINEL pattern, built at fighter scale and flown in numbers: the thing
   // that held area 10 of the first sector is line infantry in the second
-  sentry:  { hp: 9,  speed: 34,  r: 19, color: '#ff4f9a', xp: 24, sides: 8, hold: 260, ring: true },
-  stalker: { hp: 8,  speed: 40,  r: 18, color: '#ff9f4d', xp: 26, sides: 5, hold: 300 },
-  bastion: { hp: 34, speed: 18,  r: 27, color: '#8ad6ff', xp: 34, sides: 6 },
+  sentry:  { hp: 9,  speed: 34,  r: 19, color: '#ff4f9a', xp: 12, sides: 8, hold: 260, ring: true },
+  stalker: { hp: 8,  speed: 40,  r: 18, color: '#ff9f4d', xp: 13, sides: 5, hold: 300 },
+  bastion: { hp: 34, speed: 18,  r: 27, color: '#8ad6ff', xp: 18, sides: 6 },
   // outruns everything in the game, and folds to a single hit
-  dart:    { hp: 2,  speed: 330, r: 12, color: '#ff5fd2', xp: 16, sides: 3 },
+  dart:    { hp: 2,  speed: 330, r: 12, color: '#ff5fd2', xp: 9, sides: 3 },
   // the screen: fast, moderately built, and it will not give you a clean shot at
   // anything fragile. `guard` puts it on the line between you and its ward.
-  picket:  { hp: 24, speed: 175, r: 22, color: '#7cf2ff', xp: 42, sides: 5, guard: true },
+  picket:  { hp: 24, speed: 175, r: 22, color: '#7cf2ff', xp: 16, sides: 5, guard: true },
   // does not die so much as come apart — killing it is only half the job
-  splitter:{ hp: 22, speed: 46,  r: 25, color: '#ffe06b', xp: 34, sides: 6, splits: 3, splitInto: 'dart' },
+  splitter:{ hp: 22, speed: 46,  r: 25, color: '#ffe06b', xp: 14, sides: 6, splits: 3, splitInto: 'dart' },
   // the RAKER's two upgrades. Same weapon; what changes is how long the lane it
   // paints keeps burning, which is what turns the floor itself into the threat.
-  scorcher:{ hp: 18, speed: 22,  r: 23, color: '#ff8f4d', xp: 44, sides: 4, hold: 360 },
-  pyre:    { hp: 26, speed: 18,  r: 26, color: '#ff5c3d', xp: 58, sides: 5, hold: 400 },
+  scorcher:{ hp: 18, speed: 22,  r: 23, color: '#ff8f4d', xp: 20, sides: 4, hold: 360 },
+  pyre:    { hp: 26, speed: 18,  r: 26, color: '#ff5c3d', xp: 24, sides: 5, hold: 400 },
   // ---- SECTOR 02 bosses ---------------------------------------------------
   // the drift holds its own rotation: none of the five fights the first sector
   // trained you on comes back for the second
@@ -152,15 +152,15 @@ const types = {
   // is taken off it first, and the other half decides where you are allowed to
   // stand. `shield` is a pool that eats damage and grows back; `aura` is what a
   // hull hands to the ones around it.
-  carapace:{ hp: 26, speed: 34,  r: 24, color: '#a98bff', xp: 46, sides: 6, shield: 34, shRegen: 9,  shDelay: 2.6 },
-  veil:    { hp: 14, speed: 30,  r: 21, color: '#8ee6ff', xp: 52, sides: 5, hold: 360, aura: 'shield' },
-  shade:   { hp: 10, speed: 46,  r: 18, color: '#c98bff', xp: 48, sides: 4, blink: true },
-  harrow:  { hp: 20, speed: 24,  r: 23, color: '#7d6bff', xp: 56, sides: 6, hold: 430 },
-  spine:   { hp: 12, speed: 26,  r: 20, color: '#ffb3f0', xp: 54, sides: 3, hold: 640 },
+  carapace:{ hp: 26, speed: 34,  r: 24, color: '#a98bff', xp: 16, sides: 6, shield: 34, shRegen: 9,  shDelay: 2.6 },
+  veil:    { hp: 14, speed: 30,  r: 21, color: '#8ee6ff', xp: 15, sides: 5, hold: 360, aura: 'shield' },
+  shade:   { hp: 10, speed: 46,  r: 18, color: '#c98bff', xp: 12, sides: 4, blink: true },
+  harrow:  { hp: 20, speed: 24,  r: 23, color: '#7d6bff', xp: 16, sides: 6, hold: 430 },
+  spine:   { hp: 12, speed: 26,  r: 20, color: '#ffb3f0', xp: 15, sides: 3, hold: 640 },
   // the only thing out here that orbits inside your own guard
-  thresher:{ hp: 16, speed: 210, r: 17, color: '#ff7ad4', xp: 50, sides: 4, hold: 105 },
-  reaver:  { hp: 62, speed: 17,  r: 30, color: '#6f8dff', xp: 72, sides: 7, shield: 26, shRegen: 6, shDelay: 3.4 },
-  choir:   { hp: 18, speed: 28,  r: 22, color: '#b6ffea', xp: 58, sides: 5, hold: 320, aura: 'haste' },
+  thresher:{ hp: 16, speed: 210, r: 17, color: '#ff7ad4', xp: 10, sides: 4, hold: 105 },
+  reaver:  { hp: 62, speed: 17,  r: 30, color: '#6f8dff', xp: 22, sides: 7, shield: 26, shRegen: 6, shDelay: 3.4 },
+  choir:   { hp: 18, speed: 28,  r: 22, color: '#b6ffea', xp: 16, sides: 5, hold: 320, aura: 'haste' },
   // ---- SECTOR 03 capitals -------------------------------------------------
   arbiter:  { hp: 460, speed: 24, r: 78,  color: '#a98bff', xp: 560, sides: 6 },
   cantor:   { hp: 420, speed: 30, r: 62,  color: '#8ee6ff', xp: 600, sides: 5 },
@@ -295,9 +295,12 @@ const SECTORS=[
     blurb:'A collapsed shipping lane, still burning. Nothing in it is a warm-up.',
     line:'Opens where the first sector ends: heavier hulls, homing fire, five bosses you have never flown against, and a curve that climbs half again as fast.',
     hpBase:1.6, hpCurve:.055, wave:1.22, dmgCurve:.038, bossHp:1.5, bossCurve:.12,
-    // it costs more to fly, so it pays more: better remnants in the air, and a
-    // bigger bank at the end of it
-    credits:1.6, skill:1.5, xp:1.35,
+    // it costs more to fly, so it pays more — but only in the bank. `xp` is not a
+    // reward, it is the pace level-ups arrive at, and it is tuned so an area here
+    // hands you about as many refits as an area of the first sector does: the
+    // hulls out here are worth more per kill and there are more of them, so the
+    // dial comes down to compensate. Depth is paid in credits and skill instead.
+    credits:1.6, skill:1.5, xp:.8,
     color:'#ff5f8d',
     sky:{ stars:['#5c2740','#b04d6b','#ffdce6'],
           deck:['rgba(86,22,44,.44)','rgba(50,14,30,.26)','rgba(18,6,13,0)'],
@@ -306,8 +309,12 @@ const SECTORS=[
     blurb:'Past the drift the charts run out. Something out here builds its own hulls.',
     line:'Opens where the drift ends: shielded hulls that have to be opened before they can be hurt, gravity wells that take the floor out from under you, and things that arrive rather than approach.',
     hpBase:2.4, hpCurve:.075, wave:1.45, dmgCurve:.05, bossHp:2.1, bossCurve:.155,
-    // the deepest sector flown pays the most of any of them
-    credits:2.3, skill:2.1, xp:1.7,
+    // the deepest sector flown pays the most of any of them — in the bank. Its `xp`
+    // is the lowest in the game for the same reason the drift's is below one: a
+    // heavier roster in bigger waves would otherwise level you twice as fast here
+    // as in the first sector, and what you fly in with should be the build that
+    // matters rather than the one the area hands you.
+    credits:2.3, skill:2.1, xp:.55,
     color:'#a98bff',
     sky:{ stars:['#3b2f66','#7d6bc4','#f1e9ff'],
           deck:['rgba(52,32,96,.44)','rgba(30,18,58,.26)','rgba(10,6,20,0)'],
@@ -3561,19 +3568,19 @@ const GLOBALS={
   dash:{name:'SLIPSTREAM COILS',cost:14,max:1,req:['dashDrive'],run:'Dash carries you 60% further. Offered once.',each:'Dash carries you 60% further',
     desc:'Lets a level-up offer SLIPSTREAM COILS, which carries your dash 60% further. Offered once per run. Needs DASH DRIVE — there is nothing to extend without it.'},
   // ---- SYSTEMS V2: the same three systems, rebuilt --------------------------
-  hull2:{name:'DRIFT PLATING',cost:34,sector:2,branch:'sys2',req:['g:health'],run:'Maximum health +55 and fully repairs.',each:'Maximum health +55 each',
-    desc:'Replaces the hull card with a heavier one: +55 maximum health and a full repair, every time you take it.'},
-  regen2:{name:'NANITE SURGE',cost:36,sector:2,branch:'sys2',req:['g:regen'],run:'Health regeneration +5 per second.',each:'Health regeneration +5/s each',
-    desc:'Replaces the repair card with a faster one: +5 health regenerated per second, every time you take it.'},
-  thrust2:{name:'KINETIC OVERDRIVE',cost:34,sector:2,branch:'sys2',req:['g:speed'],run:'Movement speed +30%.',each:'Movement speed +30% each',
-    desc:'Replaces the thruster card with a harder one: +30% movement speed, every time you take it.'},
+  hull2:{name:'DRIFT PLATING',cost:34,sector:2,branch:'sys2',req:['g:health'],supersedes:'health',run:'Maximum health +55 and fully repairs.',each:'Maximum health +55 each',
+    desc:'Replaces the hull card with a heavier one: +55 maximum health and a full repair, every time you take it. REINFORCED HULL stops being offered.'},
+  regen2:{name:'NANITE SURGE',cost:36,sector:2,branch:'sys2',req:['g:regen'],supersedes:'regen',run:'Health regeneration +5 per second.',each:'Health regeneration +5/s each',
+    desc:'Replaces the repair card with a faster one: +5 health regenerated per second, every time you take it. NANITE REPAIR stops being offered.'},
+  thrust2:{name:'KINETIC OVERDRIVE',cost:34,sector:2,branch:'sys2',req:['g:speed'],supersedes:'speed',run:'Movement speed +30%.',each:'Movement speed +30% each',
+    desc:'Replaces the thruster card with a harder one: +30% movement speed, every time you take it. KINETIC THRUSTERS stops being offered.'},
   // ---- SYSTEMS V3: reach-grade, and two the earlier sectors never had -------
-  hull3:{name:'VOIDSTEEL PLATING',cost:66,sector:3,branch:'sys3',req:['g:hull2'],run:'Maximum health +95 and fully repairs.',each:'Maximum health +95 each',
-    desc:'Reach-grade hull: +95 maximum health and a full repair, every time you take it.'},
-  regen3:{name:'NANITE FLOOD',cost:68,sector:3,branch:'sys3',req:['g:regen2'],run:'Health regeneration +9 per second.',each:'Health regeneration +9/s each',
-    desc:'Reach-grade repair: +9 health regenerated per second, every time you take it.'},
-  thrust3:{name:'VECTOR OVERDRIVE',cost:66,sector:3,branch:'sys3',req:['g:thrust2'],run:'Movement speed +45%.',each:'Movement speed +45% each',
-    desc:'Reach-grade thrust: +45% movement speed, every time you take it.'},
+  hull3:{name:'VOIDSTEEL PLATING',cost:66,sector:3,branch:'sys3',req:['g:hull2'],supersedes:'hull2',run:'Maximum health +95 and fully repairs.',each:'Maximum health +95 each',
+    desc:'Reach-grade hull: +95 maximum health and a full repair, every time you take it. Retires DRIFT PLATING, which stops being offered.'},
+  regen3:{name:'NANITE FLOOD',cost:68,sector:3,branch:'sys3',req:['g:regen2'],supersedes:'regen2',run:'Health regeneration +9 per second.',each:'Health regeneration +9/s each',
+    desc:'Reach-grade repair: +9 health regenerated per second, every time you take it. Retires NANITE SURGE, which stops being offered.'},
+  thrust3:{name:'VECTOR OVERDRIVE',cost:66,sector:3,branch:'sys3',req:['g:thrust2'],supersedes:'thrust2',run:'Movement speed +45%.',each:'Movement speed +45% each',
+    desc:'Reach-grade thrust: +45% movement speed, every time you take it. Retires KINETIC OVERDRIVE, which stops being offered.'},
   salvage:{name:'SALVAGE FIELD',cost:52,sector:3,branch:'sys3',max:3,req:['w:bow'],run:'Remnants are worth 25% more and come to you from across the floor.',each:'+25% XP, remnants drawn in',
     desc:'Lets a level-up offer SALVAGE FIELD: +25% XP and every remnant hauled to you from anywhere on the floor.'},
   vampire:{name:'VAMPIRIC CORE',cost:58,sector:3,branch:'sys3',max:3,req:['g:regen'],run:'Every kill repairs 2 hull, and 40 off a capital.',each:'Kills repair 2 hull each',
@@ -3585,6 +3592,13 @@ const GLOBALS={
 // `dash` sets its own `max:1` — it is a switch, not a stack. The count rides on the
 // level-up card, so the last one is never a surprise.
 const GLOBAL_MAX=5;
+// a system that has a heavier version bought in the bay stops being offered: the
+// draw only ever shows the best one you own, so a late run is not still handing
+// out the +25 hull card next to the +95 one. Keyed the other way round — old id
+// to the node that retires it — so the check is a lookup rather than a scan.
+const SUPERSEDED={};
+for(const gid of Object.keys(GLOBALS))if(GLOBALS[gid].supersedes)SUPERSEDED[GLOBALS[gid].supersedes]=gid;
+const globalOutranked=id=>{const better=SUPERSEDED[id];return !!better&&treeHas('g:'+better);};
 const globalMax=id=>(GLOBALS[id]&&GLOBALS[id].max)||GLOBAL_MAX;
 const globalRank=id=>(state.globals&&state.globals[id])||0;
 const globalFull=id=>globalRank(id)>=globalMax(id);
@@ -3819,6 +3833,7 @@ function globalChoices(){
   for(const id of Object.keys(GLOBALS)){
     if(!treeHas('g:'+id))continue;
     if(id==='dash'&&!state.hasDash)continue;    // pointless without a dash to extend
+    if(globalOutranked(id))continue;            // the bay has a heavier version of this one
     if(globalFull(id))continue;                 // this run has taken all of it it can
     const nth=globalRank(id)+1, max=globalMax(id);
     out.push({id,kind:'global',name:GLOBALS[id].name,tag:'SYSTEM '+nth+'/'+max,
@@ -6259,8 +6274,8 @@ function showHome(){
     // the stick and the pads are otherwise unreachable on a machine with a keyboard
     +(devMode?'<button class="dev-toggle dev-sub'+(touchMode?' on':'')+'" id="devTouch" title="Force the touch controls">MOBILE '+(touchMode?'ON':'OFF')+'</button>':'')
     +'<div class="modal home">'
-    +'<div class="eyebrow">STARWING</div>'
-    +'<h1 class="home-title">NEON SURVIVORS</h1>'
+    +'<div class="eyebrow">HOLD THE SECTOR</div>'
+    +'<h1 class="home-title">STARFRAME</h1>'
     +'<p>Fly the sector end to end. Everything in it wants your hull.</p>'
     +'<div class="home-stats"><span>BEST AREA <b>'+highscore+'</b></span><span>CREDITS <b>'+points+'</b></span><span>SKILL <b'+(devMode?' class="dev"':'')+'>'+(devMode?'DEV':skill)+'</b></span><span>AIRCRAFT <b style="color:'+c.color+'">'+c.name+'</b></span>'
       +(sectorsOpen.size>1?'<span>SECTOR <b style="color:'+sectorDef(chosenSector).color+'">'+sectorDef(chosenSector).name+'</b></span>':'')+'</div>'
@@ -6574,7 +6589,7 @@ function showStart(){
   const resetRow = confirmingReset
     ? '<div class="reset-row confirming"><span>Erase your best room, '+points+' credits and '+unlocked.size+' unlocked pilot'+(unlocked.size===1?'':'s')+(hardStored?', and re-lock IMPOSSIBLE':'')+'? This cannot be undone.</span><button id="resetNo">CANCEL</button><button id="resetYes" class="danger">ERASE</button></div>'
     : '<div class="reset-row"><span>BEST AREA <b>'+highscore+'</b> <i>&bull;</i> '+points+' CREDITS'+(hardStored?' <i>&bull;</i> IMPOSSIBLE UNLOCKED':devMode?' <i>&bull;</i> IMPOSSIBLE VIA DEV':'')+'</span><button id="resetData">RESET DATA</button></div>';
-  show('<div class="modal"><div class="eyebrow">STARWING // '+sectorDef(chosenSector).name+'</div><h2>Choose your difficulty</h2><p>Flying as <b style="color:PILOTCOLOR">PILOTNAME</b> &middot; '+ctrlMove()+(treeHas('dashDrive')?', '+ctrlDash():'')+(pilot.shock?', '+ctrlWave():'')+(pilot.slow?', '+ctrlSlow():'')+'. Your cannon fires itself.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>14% less enemy health, 12% slower, 15% softer hits, a thinner crowd, and slower enemy fire that fades sooner.</p><p class="pay">CREDITS &times;0.7 &middot; NO SKILL POINTS</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Baseline health, speed, damage and numbers. The intended run.</p><p class="pay">CREDITS &times;1</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>+28% health, +20% speed, +35% damage, +22% more enemies, a nastier mix &mdash; and enemy fire that flies 25% faster and hangs about 30% longer.</p><p class="pay">CREDITS &times;1.75</p><button data-difficulty="hard">START HARD</button></div>' + (!hardAvailable ? '<div class="card card-locked"><span class="card-key">04 // LOCKED</span><h3>IMPOSSIBLE</h3><p>Clear area '+IMPOSSIBLE_ROOM+' on HARD to unlock. Easier settings do not count, however far you get. It pays double skill points.</p><p class="pay">BEST AREA '+highscore+' / '+IMPOSSIBLE_ROOM+' &middot; HARD ONLY</p></div>' : '')
+  show('<div class="modal"><div class="eyebrow">STARFRAME // '+sectorDef(chosenSector).name+'</div><h2>Choose your difficulty</h2><p>Flying as <b style="color:PILOTCOLOR">PILOTNAME</b> &middot; '+ctrlMove()+(treeHas('dashDrive')?', '+ctrlDash():'')+(pilot.shock?', '+ctrlWave():'')+(pilot.slow?', '+ctrlSlow():'')+'. Your cannon fires itself.</p><div class="cards"><div class="card"><span class="card-key">01 // EASY</span><h3>EASY</h3><p>14% less enemy health, 12% slower, 15% softer hits, a thinner crowd, and slower enemy fire that fades sooner.</p><p class="pay">CREDITS &times;0.7 &middot; NO SKILL POINTS</p><button data-difficulty="easy">START EASY</button></div><div class="card"><span class="card-key">02 // MEDIUM</span><h3>MEDIUM</h3><p>Baseline health, speed, damage and numbers. The intended run.</p><p class="pay">CREDITS &times;1</p><button data-difficulty="medium">START MEDIUM</button></div><div class="card"><span class="card-key">03 // HARD</span><h3>HARD</h3><p>+28% health, +20% speed, +35% damage, +22% more enemies, a nastier mix &mdash; and enemy fire that flies 25% faster and hangs about 30% longer.</p><p class="pay">CREDITS &times;1.75</p><button data-difficulty="hard">START HARD</button></div>' + (!hardAvailable ? '<div class="card card-locked"><span class="card-key">04 // LOCKED</span><h3>IMPOSSIBLE</h3><p>Clear area '+IMPOSSIBLE_ROOM+' on HARD to unlock. Easier settings do not count, however far you get. It pays double skill points.</p><p class="pay">BEST AREA '+highscore+' / '+IMPOSSIBLE_ROOM+' &middot; HARD ONLY</p></div>' : '')
     + (hardAvailable ? '<div class="card" style="border-color:#ff0000; box-shadow: 0 0 15px #ff000044;"><span class="card-key" style="color:#ff4f9a">04 // '+(hardStored?'ELITE':'DEV')+'</span><h3 style="color:#ff4f9a">IMPOSSIBLE</h3><p>Triple health, +80% speed, double damage, half again as many enemies, enemy fire 50% faster and lasting 60% longer &mdash; and touching a boss kills you outright.</p><p class="pay hot">CREDITS &times;3 &middot; SKILL &times;2</p><button data-difficulty="impossible" style="background:#ff4f9a">START IMPOSSIBLE</button></div>' : '') + '</div>' + resetRow + '<button class="continue ghost" id="startBack">BACK</button></div>');
   ui.overlay.innerHTML=ui.overlay.innerHTML.replace('PILOTCOLOR',pilot.color).replace('PILOTNAME',pilot.name);
   document.querySelectorAll('[data-difficulty]').forEach(b=>b.onclick=()=>{
