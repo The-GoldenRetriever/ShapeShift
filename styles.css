@@ -486,3 +486,13 @@ body.touch.fs-on .weapon-hud{top:calc(env(safe-area-inset-top,0px) + 60px)}
 /* four rows of abilities is taller than three: keep the stack off the footer on
    the shortest arenas rather than letting it run under the fold */
 @media(max-height:760px){.ability-hud{gap:4px;padding:6px 9px}.ability{font-size:9px}}
+
+
+/* ---- sealed airframes ------------------------------------------------------
+   The hangar shows a hull you cannot reach yet rather than hiding it, so the
+   card has to read as "not yet" rather than "cannot afford": the silhouette
+   stays, the colour does not. */
+.pilot.sealed{opacity:.55;border-style:dashed}
+.pilot.sealed .pilot-tag{background:rgba(120,140,175,.12);border-color:#3d4c66;color:#7d8ea8}
+.pilot.sealed .pilot-blurb{color:#7d8ea8;font-style:italic}
+.pilot.sealed .ship-jets{display:none}

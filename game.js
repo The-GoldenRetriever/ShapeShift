@@ -372,23 +372,24 @@ const characters = {
                blurb:'Wired to an ion arc that leaps between targets.', perks:['exclusive: ION ARC','-20% hull','+10% speed'] },
   paragon:   { name:'PARAGON',    cost:2000, hp:1.1,  speed:1.1,  color:'#ffe17a', tag:'APEX', plane:'apex', sides:6, mark:'star', damage:1.2, xp:1.2, shock:10,
                blurb:'Every system tuned past spec, down to a repulsor nobody else can carry.', perks:[()=>ctrlWave()+' &mdash; 10s cooldown','+20% weapon damage','+20% XP gained','+10% hull','+10% speed'] },
-  // ---- airframes the later sectors paid for --------------------------------
+  // ---- airframes the reach pays for -----------------------------------------
   // none of these five overlap: one breaks barriers, one lives on the dash, one
   // is paid in hull for its guns, one keeps you alive off your own kills, and
-  // the last is what PARAGON was pointing at all along.
-  curator:   { name:'CURATOR',    cost:2400, hp:1,    speed:1,    color:'#9cf0bd', tag:'SALVAGE', plane:'curator', sides:6, mark:'motes', xp:1.35, regen:1, siphon:2,
+  // the last is what PARAGON was pointing at all along. `sector` seals a hull in
+  // the hangar until that sector is open — credits alone do not buy these.
+  curator:   { name:'CURATOR',    cost:2400, sector:3, hp:1,    speed:1,    color:'#9cf0bd', tag:'SALVAGE', plane:'curator', sides:6, mark:'motes', xp:1.35, regen:1, siphon:2,
                blurb:'Strips what it kills and puts it straight back into the hull. It never has a good moment; it never has a bad one either.',
                perks:['every kill repairs 2 hull, 40 off a capital','+35% XP gained','+1 regen/s'] },
-  breaker:   { name:'BREAKER',    cost:2600, hp:1.5,  speed:.85,  color:'#8ad6ff', tag:'SIEGE', plane:'breaker', sides:8, mark:'plate', sunder:2, damage:1.1,
+  breaker:   { name:'BREAKER',    cost:2600, sector:3, hp:1.5,  speed:.85,  color:'#8ad6ff', tag:'SIEGE', plane:'breaker', sides:8, mark:'plate', sunder:2, damage:1.1,
                blurb:'Built for the reach: its guns are tuned to the frequency shields hold at, and it has the plating to stand there while they come off.',
                perks:['hostile barriers drain twice as fast','+10% weapon damage','+50% hull','-15% speed'] },
-  phantom:   { name:'PHANTOM',    cost:3000, hp:.6,   speed:1.35, color:'#b6ffea', tag:'GHOST', plane:'phantom', sides:3, mark:'fins', dashCd:1.4, dashPower:1.4, course:1,
+  phantom:   { name:'PHANTOM',    cost:3000, sector:3, hp:.6,   speed:1.35, color:'#b6ffea', tag:'GHOST', plane:'phantom', sides:3, mark:'fins', dashCd:1.4, dashPower:1.4, course:1,
                blurb:'Almost no hull and almost no cooldown. It is flown on the dash, not on the throttle.',
                perks:['dash recharges in 1.4s','dash 40% further','one extra change of heading per dash','-40% hull','+35% speed'] },
-  oracle:    { name:'ORACLE',     cost:3400, hp:.85,  speed:1.05, color:'#8f7dff', tag:'PRECISION', plane:'oracle', sides:5, mark:'motes', crit:{chance:.15,mult:.8},
+  oracle:    { name:'ORACLE',     cost:3400, sector:3, hp:.85,  speed:1.05, color:'#8f7dff', tag:'PRECISION', plane:'oracle', sides:5, mark:'motes', crit:{chance:.15,mult:.8},
                blurb:'Its targeting suite finds the seam in anything. Thin, and it does not have to be anything else.',
                perks:['+15 percentage points of critical chance','+0.8x critical damage','-15% hull','+5% speed'] },
-  sovereign: { name:'SOVEREIGN',  cost:4500, hp:1.25, speed:1.15, color:'#ffb3f0', tag:'ASCENDANT', plane:'sovereign', sides:6, mark:'star', damage:1.35, xp:1.3, shock:9, slow:14,
+  sovereign: { name:'SOVEREIGN',  cost:4500, sector:3, hp:1.25, speed:1.15, color:'#ffb3f0', tag:'ASCENDANT', plane:'sovereign', sides:6, mark:'star', damage:1.35, xp:1.3, shock:9, slow:14,
                blurb:'What the PARAGON was a draft of. It carries the repulsor and a field that takes the pace off everything hostile in the sector at once.',
                perks:[()=>ctrlWave()+' &mdash; 9s cooldown',()=>ctrlSlow()+' &mdash; hostiles crawl for '+SLOW_TIME+'s','+35% weapon damage','+30% XP gained','+25% hull','+15% speed'] }
 };
@@ -6319,20 +6320,30 @@ function showHome(){
   $('#homeIndex').onclick=()=>{sfx('ui');confirmingNew=confirmingDrop=false;showIndex();};
   $('#homeRoster').onclick=()=>{sfx('ui');confirmingNew=confirmingDrop=false;showRoster();};
 }
-const affordableCount=()=>Object.keys(characters).filter(id=>!unlocked.has(id)&&points>=characters[id].cost).length;
+// a hull is sealed until the sector that builds it is open. The seal is on
+// acquiring one, not on keeping it: a hull already in the hangar stays flyable
+// however you came by it. Dev mode sees through it like every other sector gate.
+const pilotSealed=id=>{const c=characters[id];return !!(c&&c.sector&&!unlocked.has(id)&&!sectorOpen(c.sector));};
+const affordableCount=()=>Object.keys(characters).filter(id=>!unlocked.has(id)&&!pilotSealed(id)&&points>=characters[id].cost).length;
 function showRoster(){
   setInRun(false);
   closeHowTo();
   const cards=Object.keys(characters).map(id=>{
     const c=characters[id], have=unlocked.has(id), active=chosen===id, can=points>=c.cost;
-    const perks=c.perks.length?'<ul class="pilot-perks">'+c.perks.map(p=>'<li>'+(typeof p==='function'?p():p)+'</li>').join('')+'</ul>':'';
-    const action=active?'<button class="pilot-btn active" disabled>SELECTED</button>'
+    // a hull from a sector you have not opened is shown rather than hidden — the
+    // same call the sector reel makes, since what is next is part of the reward.
+    // Credits cannot reach it, so the card says why instead of quoting a price.
+    const sealed=pilotSealed(id);
+    const perks=sealed?'':c.perks.length?'<ul class="pilot-perks">'+c.perks.map(p=>'<li>'+(typeof p==='function'?p():p)+'</li>').join('')+'</ul>':'';
+    const action=sealed?'<button class="pilot-btn locked" disabled>SEALED</button>'
+      :active?'<button class="pilot-btn active" disabled>SELECTED</button>'
       :have?'<button class="pilot-btn" data-pick="'+id+'">SELECT</button>'
       :'<button class="pilot-btn'+(can?' buy':' locked')+'"'+(can?' data-buy="'+id+'"':' disabled')+'>'+(can?'UNLOCK '+c.cost:'LOCKED '+c.cost)+'</button>';
-    return '<div class="pilot'+(active?' on':'')+(have?'':' dim')+'" style="--pilot:'+c.color+'">'
-      +'<div class="pilot-art">'+planeSvg(c)+'</div>'
-      +'<div class="pilot-head"><i class="weapon-dot" style="background:'+c.color+'"></i><b>'+c.name+'</b>'+(c.tag?'<span class="pilot-tag">'+c.tag+'</span>':'')+'</div>'
-      +'<p class="pilot-blurb">'+c.blurb+'</p>'+perks+action+'</div>';
+    return '<div class="pilot'+(active?' on':'')+(have&&!sealed?'':' dim')+(sealed?' sealed':'')+'" style="--pilot:'+(sealed?'#3d4c66':c.color)+'">'
+      +'<div class="pilot-art">'+planeSvg(sealed?Object.assign({},c,{color:'#3d4c66'}):c)+'</div>'
+      +'<div class="pilot-head"><i class="weapon-dot" style="background:'+(sealed?'#3d4c66':c.color)+'"></i><b>'+c.name+'</b>'
+      +(sealed?'<span class="pilot-tag">SEALED</span>':c.tag?'<span class="pilot-tag">'+c.tag+'</span>':'')+'</div>'
+      +'<p class="pilot-blurb">'+(sealed?'Airframes this far past the line are not built where you are flying. Reach '+sectorDef(c.sector).name+' and the hangar opens it.':c.blurb)+'</p>'+perks+action+'</div>';
   }).join('');
   show('<div class="modal wide">'
     +'<div class="eyebrow">HANGAR</div><h2>Aircraft</h2>'
@@ -6344,7 +6355,7 @@ function showRoster(){
   +'</div>');
   document.querySelectorAll('[data-buy]').forEach(b=>b.onclick=()=>{
     const id=b.dataset.buy, c=characters[id];
-    if(!c||unlocked.has(id)||points<c.cost)return;
+    if(!c||unlocked.has(id)||points<c.cost||pilotSealed(id))return;
     points-=c.cost;unlocked.add(id);chosen=id;saveProfile();sfx('level');
     toast('UNLOCKED — '+c.name);
     showRoster();
