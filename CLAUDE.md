@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - `index.html` — the canvas plus the DOM HUD (every element the game writes to has an `id`)
 - `styles.css` — one minified base block, then appended readable override blocks
-- `game.js` — the entire game (~5000 lines, flat script, no modules or classes)
+- `game.js` — the entire game (~5500 lines, flat script, no modules or classes)
 
 ## Running
 
@@ -36,7 +36,11 @@ state.xp = state.need                                    // force a level-up dra
 state.weapons.mine = newWeapon('mine')                   // grant a weapon outright
 setTouchMode(true)                                       // flip to the on-screen stick and pads
 enterDev()                                               // every pilot unlocked, profile set aside
+localStorage.removeItem('shapeshift_story');location.reload()   // replay the scripted intro from the top
+story.stage='index';showIndex()                          // or jump to one beat of the guided tour
 ```
+
+`?story=0` on the URL skips the scripted intro for a fresh profile — see *The signal* below.
 
 `enterDev()` (reachable in-game from the home screen behind the password in `showDevPrompt`) is a sandbox: while `devMode` is true, `saveProfile`, `saveTree`, `storeRun`, `clearRun` and `recordRoom` all no-op, and `exitDev()` restores the pre-dev profile from `devBackup` — including the touch scheme, so a forced MOBILE ON reverts to whatever the device itself asked for. Clicking a node in dev mode toggles its rank rather than buying it, and toggling one off runs `pruneTree()`, which zeroes every node whose `req` is no longer met. ENABLE ALL / CLEAR ALL in the bay's top bar are `devMaxTree()` / `devClearTree()` — the fill only touches nodes `nodeVisible` passes, and the clear keeps `w:bow` because the bay's one-node first screen has no way back out. Neither changes a run already in the air: tree passives are read into run scalars at `reset()`. The pause menu's DEV row calls `devJumpToArea(room)`, which empties every entity array, clears the portal/warp fields and calls `beginRoom()` — the loadout comes with you, so it is the fastest way to see a boss or a late-area crowd. The row below it is `devGrantRefits(n)` — free level-up draws pushed straight into `state.freeDraws`, which is what `headstart` pays for at pre-flight; `n` of 0 clears the queue, and `state.hasDraw` is recomputed on every grant because bay toggles change the pool mid-run. **Any new persistence call has to check `devMode` too**, or dev play will overwrite a real save.
 
@@ -60,7 +64,7 @@ The cannon is the one weapon with a second target class. `fire()` falls back to 
 
 ### State
 
-One global `state` object holds the whole run, rebuilt from scratch by `reset(difficulty)`. Entities live in sibling global arrays declared together on one line (`game.js:216` — `enemies`, `arrows`, `enemyBullets`, `stars`, `particles`, `blasts`, `echoShots`, `damageNumbers`, `delayedBlasts`, `strikes`, `rings`, `pulses`, `beams`, `mines`, `wells`, `rockets`, `walls`, `dashGhosts`), each with a paired `updateX(dt)` and `drawX()`. Adding an entity kind means adding the array to that declaration, clearing it in `reset()`, and wiring both functions into the `update`/`draw` call chains.
+One global `state` object holds the whole run, rebuilt from scratch by `reset(difficulty)`. Entities live in sibling global arrays declared together on one line (`game.js:276` — `enemies`, `arrows`, `enemyBullets`, `stars`, `particles`, `blasts`, `echoShots`, `damageNumbers`, `delayedBlasts`, `strikes`, `rings`, `pulses`, `beams`, `mines`, `wells`, `rockets`, `walls`, `dashGhosts`), each with a paired `updateX(dt)` and `drawX()`. Adding an entity kind means adding the array to that declaration, clearing it in `reset()`, clearing it in `clearField()` if it should not cross a warp (see *Room cycle*), and wiring both functions into the `update`/`draw` call chains.
 
 ### Meta-progression: the skill tree gates the run
 
@@ -121,6 +125,8 @@ Bosses bypass all of this and run their own state machine from `bossBehaviour[e.
 
 When `state.left === 0 && enemies.length === 0`, `finishRoom()` clears all hostile projectiles (you cannot die to a stray shot after winning), vacuums the remaining XP remnants, offers a relic on boss rooms, then `openPortal()`. `FINAL_ROOM` (50) ends the run: `nextRoom()` hands off to `runCleared()` instead of incrementing, which banks the payout, calls `clearRun()` and shows the SECTOR CLEAR screen (change difficulty / hangar / main menu). Area 50 skips its relic — there is no area left to spend it in. Clearing it on `IMPOSSIBLE_KEY` (hard) or on IMPOSSIBLE itself sets `shapeshift_hard_beaten`; easier settings never unlock it. Touching the portal starts the multi-stage `state.victorySequence` (`swirl` → `suck` → `flash`/`warp` → `arrive`), which drives camera zoom and rotation and ends by calling `nextRoom()`.
 
+`nextRoom()` calls `clearField()` before `beginRoom()`: nothing crosses the warp with you — rounds in the air, deployed mines, wells, walls and rockets, the dash trail, every particle, and the drift's burning hulks are all emptied, so arriving reads as a clean teleport rather than a cut with the last area's debris still hanging in it. `devJumpToArea` reuses it (plus `enemies.length=0`), which is why the two cannot drift apart — but a **new entity array has to be added to `clearField` by hand**, or it will survive the jump.
+
 ### UI
 
 All menus are HTML strings passed to `show()`, which sets `#overlay`'s `innerHTML` and re-binds handlers by `id` / `data-*` attribute. The in-game HUD is DOM, not canvas: `hud()` runs at the end of every `update` and writes into the `ui` element map. The "how to play" screen (`demos`) is the exception — animated canvases rendered per card.
@@ -136,6 +142,20 @@ THREAT INDEX on the home screen (`showIndex`) is a recognition chart: every hull
 - Nothing is hand-listed. The craft come out of `SECTOR_SPAWNS` via `foeGroups()` (each shape charted once, under the first sector that flies it, so the drift's half of the roster is not listed twice), and the capitals out of `bossChart(sec)`, which repeats `bossForRoom`'s arithmetic — areas 10–40 off the rotation, area 50 the finale. That is why a rotation's unreachable fifth entry (sector 1's `hollow`) never appears on the chart either.
 - A sealed sector gets one locked panel instead of its plates, and neither the tally nor a plate's "flies in" line counts it — `indexPool` and `foeSectors` both filter on `sectorOpen`. The **pips** deliberately do not: `indexScale()` prices them against the whole roster so a plate does not change meaning when a sector opens.
 - Wording lives in `CODEX` (craft) and each boss's `note` (capitals). Nothing there is read during a run.
+
+### The signal: the scripted intro
+
+**A fresh profile does not land on a menu — it lands in an unwinnable run.** The last line of `game.js` is `if(!storyBoot()){…}`, and `storyBoot()` reads `story.stage` (persisted as `shapeshift_story`) to resume whatever the script still owes. Only when it returns false do the ordinary opening screens run.
+
+The whole tutorial is spoken by one character — an unnamed voice, `UNKNOWN SIGNAL` — through a DOM panel (`#dialogue`, above `#overlay` at z-index 9), so a briefing can be given over a menu as easily as over the arena. It is **not** canvas, and not part of `show()`.
+
+- **Two kinds of line, and the difference matters.** `say(lines, onEnd)` is a briefing: `frame()` skips `update`/`ultimateEffects` while `dialogueBlocking()` is true, so the game is held. `chirp(text)` is a contact report: no input, no freeze, gone after `CHIRP_LIFE`. The tutorial is *said*; the hundred hull identifications that follow are *chirped*, or the game would stop dead every time something new flew in. `say` while a briefing is up queues behind it; `chirp` while one is up is dropped.
+- **It types on wall-clock from `frame()`**, before the `if(!state)` guard — the panel has to keep running when there is no run at all. SPACE (or a tap) finishes the line, then advances; holding either runs it at `DLG_HOLD` speed. The keydown handler routes SPACE to `dialogueAdvance()` *instead of* `pause()`, and `pause()`, `touchLive()` and the touch pads all stand down while a briefing is up.
+- **The opening run (`state.prologue`)** is flown with `state.weapons={}` — `reset()` empties the rack when `prologueBoot` is set. It cannot be won (`finishRoom` returns early), cannot be lost (`hurt` floors hull at `PROLOGUE_FLOOR`), cannot be paused or parked, and does **not** call `seeFoe` — the chart is not open yet, and the two hulls met there are owed to the first real run as lessons. It flies its own spawn script in `type()` and its own cadence in `spawnGap()`: drones and interceptors, then racers from `PROLOGUE_RACERS`. The channel opens at `PROLOGUE_HP`, or at `PROLOGUE_CAP` seconds for a pilot who dodges everything — `STORY.rescue(hurt)` takes which of the two it is talking to.
+- **The guided tour** (bay → manual → hangar → index) turns each screen's BACK button into the way onward via `tourExit` + `paintTourExit()`. The three screens call `paintTourExit()` at the end of their own render because they re-render themselves — the index's tabs do exactly that — so being told once is not enough. The bay is the exception: the beat is closed by *buying* `w:bow`, hooked in `showTree`'s node handler.
+- **Everything after the tour is a one-off flag on `story`**, not a stage: `taught` (the first two craft get a full briefing, everything after chirps), `portal` (the first area ever cleared explains the transit point — `storyPortal()` holds `openPortal()` shut until the briefing ends), and `drift` (`storyDrift()`, called from `beginRoom`, introduces CRIMSON DRIFT on its first area 1).
+- Wording lives in `STORY`, whose entries are **functions** — the same escape hatch `RELICS` and `characters` have — because half of it reads `ctrlMove()` or the aircraft in the hangar, and both can change between one telling and the next. Contact lines are built from `CODEX` and the boss rows' own names, so the script cannot drift from the chart.
+- `?story=0` skips the intro outright; `enterDev`/`exitDev` back the script up and restore it like every other profile field.
 
 ### The dash animation is a readout of the dash
 
@@ -158,11 +178,13 @@ The trail lives in `dashGhosts`, aged on `dt` (so it stretches under hit-stop) b
 
 ### Persistence
 
-`localStorage` keys, all prefixed `shapeshift_`: `_best_room`, `_points`, `_unlocked`, `_character`, `_hard_beaten`, `_skill`, `_tree`, `_sectors` (which sectors are open), `_sector` (the one the menus point at), `_seen` (hulls identified for the threat index), `_sound`, `_run`, `_version`. Everything except `_sound` and `_version` is in `SAVE_KEYS` — `_sound` deliberately survives a version wipe.
+`localStorage` keys, all prefixed `shapeshift_`: `_best_room`, `_points`, `_unlocked`, `_character`, `_hard_beaten`, `_skill`, `_tree`, `_sectors` (which sectors are open), `_sector` (the one the menus point at), `_seen` (hulls identified for the threat index), `_story` (how far through the scripted intro), `_sound`, `_run`, `_version`. Everything except `_sound` and `_version` is in `SAVE_KEYS` — `_sound` deliberately survives a version wipe.
 
 **Two independent version numbers, easy to confuse:**
-- `SAVE_VERSION` (currently `'2'`) versions the *profile*. On load, if `shapeshift_version` doesn't match, every key in `SAVE_KEYS` is deleted — a one-time wipe. Bump it only when a change makes old progress meaningless; anything new that must survive a wipe-free upgrade also needs adding to `SAVE_KEYS`.
+- `SAVE_VERSION` (currently `'3'` — bumped to put every existing profile through the scripted intro) versions the *profile*. On load, if `shapeshift_version` doesn't match, every key in `SAVE_KEYS` is deleted — a one-time wipe. Bump it only when a change makes old progress meaningless; anything new that must survive a wipe-free upgrade also needs adding to `SAVE_KEYS`.
 - The run blob's `v:1` in `storeRun`/`loadRun` versions the *parked run* only.
+
+`resetSavedData()` (the home screen's two-press wipe) loops `SAVE_KEYS` rather than hand-listing keys — it used to hand-list them, which is how the sector keys came to survive a wipe. It still has to reset the matching in-memory globals by hand, so a new persisted global needs a line there.
 
 `storeRun()` / `resumeRun()` save the run's *meaning*, not its entities — room number, level, weapons, globals, relics, player stats, the tree-derived scalars — and the room repopulates via `beginRoom()` on resume. **Any new `state` field that must survive a park-and-resume has to be added to both functions.** Death calls `clearRun()` — runs are only resumable by parking from the pause menu. A parked run can also be thrown away without flying a new one: DISCARD RUN on the home screen (two presses, `confirmingDrop`) just calls `clearRun()`, since parking already banked what the run was worth.
 
@@ -187,6 +209,7 @@ Tuning lives in data tables near the top of `game.js` rather than in code — pr
 | `HULLS`, `HULL_OF`, `PLANES`, `PLANE_SCALE` | the unit-space polygon each pilot's ship is drawn from, and the `plane` class that scales it |
 | `weaponData`, `weaponUpgrades`, `ultimateData` | weapon base stats, the five upgrades each, and the ultimate |
 | `DMG_UPGRADE` | which upgrade carries each weapon's visual signature — the one edit needed if an upgrade is renamed or the look moves to a different one |
+| `STORY`, `PROLOGUE_*`, `DLG_CPS`, `DLG_HOLD`, `CHIRP_LIFE` | every line the scripted intro speaks (functions, so they can read the control scheme), and the opening run's pacing: when the racers arrive, what hull fraction opens the channel, the floor that stops it killing you, and the cap for a pilot who never gets hit |
 | `HULK_GAP`, `HULK_PF`, `HULK_MAX` | the drift's burning-container scenery: seconds between wrecks, how far off they ride, and how many may be in the sky at once |
 | `SECTORS`, `SECTOR_SPAWNS`, `SECTOR_BOSSES` | per-sector scaling curves, boss order and sky palette, plus the spawn pool: one row per shape, `from` (first area it appears in), `base` weight and `growth` (negative = fades out as areas climb). There is no single global spawn table — every sector carries its own |
 | `SECTOR2_WEAPONS`, `WALL_SPEED`, `WALL_LEG` | which armaments the second sector opens, and how far a PHALANX WALL throws |
@@ -215,7 +238,7 @@ Because the script is flat, one feature spreads across many functions. Miss a st
 6. `availableWeaponChoices` — the unlock blurb in the `desc` ternary chain
 7. `weapons(dt)` — the firing block
 8. `reset()`'s state literal — its cooldown field (`mineIn`), if it fires on an interval rather than continuously like `aegis`/`sword`
-9. the entity array in the `game.js:216` declaration and in `reset()`, if it spawns persistent objects
+9. the entity array in the `game.js:276` declaration, in `reset()` and in `clearField()`, if it spawns persistent objects
 10. `update()`'s call chain — `updateMines(dt)`
 11. `draw()`'s call chain (room space) or `drawWeaponEffects` (for auras attached to the player)
 12. `ultimateEffects` — a branch if the ultimate ticks actively; otherwise add the id to the passive skip-list

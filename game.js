@@ -58,7 +58,7 @@ function noiseHit(dur,vol,from,to){
 }
 // minimum spacing per sound, so rapid-fire weapons cannot turn into a buzz
 const SFX_GAP={shoot:.08,laser:.11,arc:.13,hit:.045,kill:.05,boom:.09,hurt:.14,
-  dash:.2,level:.35,pick:.06,ui:.04,portal:.4,boss:.6,cleared:.4,ult:.4,death:.6,beat:.85,pip:.035};
+  dash:.2,level:.35,pick:.06,ui:.04,portal:.4,boss:.6,cleared:.4,ult:.4,death:.6,beat:.85,pip:.035,comm:.12};
 const sfxAt={};
 function sfx(name){
   if(!actx||!soundOn)return;
@@ -84,6 +84,7 @@ function sfx(name){
     case 'ult':    [392,523,659,880].forEach((f,i)=>tone(f,.5,'triangle',.075,0,i*.05)); noiseHit(.4,.07,600,4000); break;
     case 'death':  tone(300,.9,'sawtooth',.11,45); noiseHit(.7,.08,800,60); break;
     case 'beat':   tone(72,.16,'sine',.11,52); break;
+    case 'comm':   tone(420,.09,'sine',.05,660); tone(880,.05,'sine',.02,1180,.05); break;
   }
 }
 function setSound(on){
@@ -296,10 +297,10 @@ const characters = {
 // v2 introduces the skill tree, which changes what a run is allowed to offer you.
 // Progress earned under the old economy has no meaning here, so every profile is
 // cleared once and starts again from the root of the tree.
-const SAVE_VERSION='2';
+const SAVE_VERSION='3';
 const SAVE_KEYS=['shapeshift_best_room','shapeshift_hard_beaten','shapeshift_points',
   'shapeshift_unlocked','shapeshift_character','shapeshift_run','shapeshift_skill','shapeshift_tree',
-  'shapeshift_sectors','shapeshift_sector','shapeshift_seen'];
+  'shapeshift_sectors','shapeshift_sector','shapeshift_seen','shapeshift_story'];
 if(localStorage.getItem('shapeshift_version')!==SAVE_VERSION){
   for(const k of SAVE_KEYS)localStorage.removeItem(k);
   localStorage.setItem('shapeshift_version',SAVE_VERSION);
@@ -318,6 +319,7 @@ let seenFoes = new Set((localStorage.getItem('shapeshift_seen')||'').split(',').
 function seeFoe(id){
   if(!id||seenFoes.has(id))return;
   seenFoes.add(id);
+  storyContact(id);                        // the chart just gained a plate — say so
   if(devMode)return;                       // dev mode is a sandbox: the real chart is untouched
   try{ localStorage.setItem('shapeshift_seen',[...seenFoes].join(',')); }catch(e){}
 }
@@ -337,7 +339,7 @@ let savedRun = loadRun();
 function clearRun(){ savedRun=null; if(!devMode)localStorage.removeItem(RUN_KEY); }
 // only the run's meaning is stored — the room repopulates on resume
 function storeRun(){
-  if(!state||devMode)return;
+  if(!state||devMode||state.prologue)return;   // an unarmed opening run is not a run to come back to
   savedRun={ v:1, difficulty:state.difficulty, character:state.character, sector:state.sector,
     room:state.room, level:state.level, xp:state.xp, need:state.need,
     kills:state.kills, time:state.time, paid:state.paidCredits||0,
@@ -469,7 +471,7 @@ function resize() {
 }
 resize(); addEventListener('resize', ()=>{resize();measureCanvas();});
 addEventListener('keydown', e => { if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'))return;   // let text fields have their keys
-  const k = e.key.toLowerCase(); if (['arrowup','arrowdown','arrowleft','arrowright',' ','shift'].includes(k)) e.preventDefault(); keys.add(k); if (k === ' ') pause(); if (k === 'shift') dash(); if (k === 'e') phaseCloak(); if (k === 'q') shockPulse(); if (k === 'f') toggleFullscreen(); if (k === 'm'){initAudio();setSound(!soundOn);}
+  const k = e.key.toLowerCase(); if (['arrowup','arrowdown','arrowleft','arrowright',' ','shift'].includes(k)) e.preventDefault(); keys.add(k); if (k === ' '){ if(dialogueBlocking())dialogueAdvance(); else pause(); } if (k === 'shift') dash(); if (k === 'e') phaseCloak(); if (k === 'q') shockPulse(); if (k === 'f') toggleFullscreen(); if (k === 'm'){initAudio();setSound(!soundOn);}
   // the sector reel is the one screen that reads the arrow keys as a menu
   if(sectorScreenOpen()&&(k==='arrowleft'||k==='arrowright')){sfx('ui');cycleSector(k==='arrowleft'?-1:1);} });
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
@@ -521,7 +523,7 @@ const fireAbility=id=>{if(id==='dash')dash();else if(id==='phase')phaseCloak();e
 // you have to fly into the portal — with no way out of the area but parking the
 // run. The keyboard is live whenever update() runs, so this matches it: the run
 // is in the air, and nothing has taken control away from you.
-const touchLive=()=>touchMode&&!!state&&inRun&&!state.paused&&!state.over&&!state.dying&&!state.victorySequence;
+const touchLive=()=>touchMode&&!!state&&inRun&&!state.paused&&!state.over&&!state.dying&&!state.victorySequence&&!dialogueBlocking();
 function releaseTouch(){stick.id=null;stick.active=false;stick.dx=0;stick.dy=0;for(const k in touchPress)delete touchPress[k];}
 function setTouchMode(on){
   touchMode=!!on;
@@ -605,6 +607,8 @@ function reset(difficulty = 'medium') {
   state.hasDraw=hasDraw();
   // FIELD REFIT is spent as ordinary level-up draws, taken before you fly
   state.freeDraws=treeRank('headstart');
+  // the opening run carries nothing at all — that is the point of it
+  if(prologueBoot){state.prologue=true;state.weapons={};state.hasDraw=false;state.freeDraws=0;}
   beginRoom(); hide();
 }
 // pilot and tree multipliers land on a weapon the moment it is created
@@ -713,7 +717,12 @@ function spawnWeights(room,mix){
   }
   return out;
 }
+// the opening run flies a script rather than the table: drones and interceptors
+// to establish that nothing you do stops them, and then the racers, which are
+// what actually walk the hull down to half
 function type() {
+  if(state.prologue)return state.time<PROLOGUE_RACERS?(Math.random()<.6?'square':'triangle')
+    :Math.random()<.5?'diamond':Math.random()<.6?'square':'triangle';
   const mix=(difficulties[state.difficulty]||difficulties.medium).mix||1;
   const w=spawnWeights(state.room,mix);
   let total=0; for(const e of w)total+=e.w;
@@ -727,10 +736,14 @@ function enemyHp(spec){
   const sec=sector(), difficulty=difficulties[state.difficulty]||difficulties.medium;
   return Math.max(1, Math.ceil(spec.hp * 1.1 * sec.hpBase * difficulty.hp * (1 + (state.room-1) * sec.hpCurve)));
 }
+// how long until the next shape is fed in. The opening run is paced by hand: a
+// trickle, so an unarmed hull is worn down rather than buried.
+const spawnGap=()=>state.prologue?rand(.85,1.35)
+  :Math.max(.16,(.55-state.room*.02)/((difficulties[state.difficulty]||difficulties.medium).mass||1));
 function spawn() {
   const name=type(), spec=types[name], p=edge();
   const hp = enemyHp(spec);
-  seeFoe(name);
+  if(!state.prologue)seeFoe(name);   // the chart does not exist yet, and the lessons are owed to the first real run
   enemies.push({type:name,x:p.x,y:p.y,hp,maxHp:hp,r:spec.r,shoot:rand(1,3),phase:Math.random()*7,flash:0,slowT:0,slowAmt:0,rot:ang(p,player),born:state.time,numIn:0});
 }
 // the top-left readout reports the area you are flying. Outside a run there is no
@@ -750,8 +763,10 @@ function beginRoom() {
   const mass=(difficulties[state.difficulty]||difficulties.medium).mass||1;
   const wave=Math.round((12+state.room*6+Math.pow(state.room,1.3)*.35)*mass*sector().wave);
   state.active=true; state.intermission=false; state.exit=null; state.vacuum=false; state.left=bossRoom?0:wave; state.spawnIn=.55;
+  if(state.prologue)state.left=400;      // it ends on the radio call, not on a body count
   if(bossRoom){spawnBoss();sfx('boss');}
-  for(let i=0;i<Math.min(Math.round(14*mass),state.left);i++){spawn();state.left--;}
+  const opening=state.prologue?3:Math.min(Math.round(14*mass),state.left);
+  for(let i=0;i<opening;i++){spawn();state.left--;}
   ui.room.textContent=state.room; ui.roomState.textContent=bossRoom?bossForRoom(state.room).name+' // '+bossForRoom(state.room).blurb:'HOSTILES INBOUND';
   setInRun(true);
   recordRoom(state.room);
@@ -759,6 +774,7 @@ function beginRoom() {
   state.roomBanner={room:state.room,life:bossRoom?4.2:BANNER_TIME,total:bossRoom?4.2:BANNER_TIME,
     boss:bossDef?bossDef.name:null,bossNote:bossDef?bossDef.blurb.toUpperCase():null,
     bossColor:bossDef?types[bossDef.id].color:null};
+  storyDrift();                          // first area of the drift, first time only
 }
 function spawnBoss(){
   const def=bossForRoom(state.room), spec=types[def.id], difficulty=difficulties[state.difficulty];
@@ -807,7 +823,8 @@ function nearestShot() {
 function fire() {
   // the cannon alone will engage incoming fire when the screen is otherwise clear
   const target=nearest()||nearestShot(); if(!target)return;
-  player.aim=ang(player,target); const w=state.weapons.bow;
+  const w=state.weapons.bow; if(!w)return;
+  player.aim=ang(player,target);
   const shotCount=(w.shots||1)+(w.ultimate?2:0), speed=w.projectileSpeed||620;
   // every round leaves the nose along the plane's heading, then banks toward its target
   const h=player.heading, muzzle=player.r*1.8*PLANE_SCALE, nx=player.x+Math.cos(h)*muzzle, ny=player.y+Math.sin(h)*muzzle, perp=h+Math.PI/2;
@@ -827,7 +844,7 @@ function fire() {
   }
   burst(nx,ny,w.color,4,70,{size:2,drag:6});sfx('shoot');
 }
-function hurt(n){if(state.cloakTime>0||state.dying>0)return;n*=state.armor||1;sfx('hurt');hitStop(n>=player.maxHp*.25?.07:0);player.hp=Math.max(0,player.hp-n);player.hurtAt=state.time;player.flash=0.1;state.hurtFlash=Math.min(1,(state.hurtFlash||0)+clamp(n/45,.3,1));burst(player.x,player.y,'#ff557d',10,150,{size:2.6,drag:4,spread:player.r});shake(12);if(state.thorns)staticDischarge();}
+function hurt(n){if(state.cloakTime>0||state.dying>0)return;n*=state.armor||1;sfx('hurt');hitStop(n>=player.maxHp*.25?.07:0);player.hp=Math.max(state.prologue?PROLOGUE_FLOOR:0,player.hp-n);player.hurtAt=state.time;player.flash=0.1;state.hurtFlash=Math.min(1,(state.hurtFlash||0)+clamp(n/45,.3,1));burst(player.x,player.y,'#ff557d',10,150,{size:2.6,drag:4,spread:player.r});shake(12);if(state.thorns)staticDischarge();}
 function phaseCloak(){if(!state||!state.hasCloak||state.paused||state.victorySequence||state.cloakTime>0||state.cloakCooldown>0)return;state.cloakTime=3;state.cloakCooldown=12;burst(player.x,player.y,'#bca7ff',30,180);}
 // paragon only: the ultimate's clear-the-floor wave on a cooldown. It deals no
 // damage — it buys the second of space that a swarm was about to close.
@@ -1102,8 +1119,9 @@ function update(dt,real) {
   state.history.unshift({x:player.x,y:player.y});if(state.history.length>24)state.history.pop();updateRelics(dt);
   if(player.hp>0&&state.time-player.hurtAt>2) player.hp=Math.min(player.maxHp,player.hp+player.regen*dt);   // never regen out of a death
   player.flash=Math.max(0,player.flash-dt);
-  if(state.active&&state.left>0){state.spawnIn-=dt;if(state.spawnIn<=0){spawn();state.left--;state.spawnIn=Math.max(.16,(.55-state.room*.02)/((difficulties[state.difficulty]||difficulties.medium).mass||1));}}
-  state.bowIn-=dt;if(state.bowIn<=0){fire();state.bowIn=1/state.weapons.bow.rate;}
+  if(state.active&&state.left>0){state.spawnIn-=dt;if(state.spawnIn<=0){spawn();state.left--;state.spawnIn=spawnGap();}}
+  if(state.weapons.bow){state.bowIn-=dt;if(state.bowIn<=0){fire();state.bowIn=1/state.weapons.bow.rate;}}
+  if(state.prologue)prologueTick(dt);
   for(const e of enemies) moveEnemy(e,dt);
   weapons(dt); updateArrows(dt); updateRockets(dt); updateWalls(dt); updateEchoShots(dt); updateEnemyBullets(dt); updateStars(dt); deaths(); updateParticles(dt); updateBlasts(dt); updateDelayedBlasts(dt); updateMines(dt); updateWells(dt); updateStrikes(dt); updateRings(dt); updatePulses(dt); updateBeams(dt); updateDashFx(dt); updateDamageNumbers(dt);
   if(state.active&&state.left===0&&enemies.length===0) finishRoom();
@@ -2299,7 +2317,7 @@ function updateParticles(dt){for(const p of particles){const d=1-(p.drag||3.4)*d
 function updateBlasts(dt){for(const b of blasts)b.life-=dt;blasts=blasts.filter(b=>b.life>0);}
 function updateDelayedBlasts(dt){for(const b of delayedBlasts){b.timer-=dt;if(b.timer<=0){for(const e of enemies)if(dist(e,b)<b.radius){e.hp-=b.damage;e.flash=.15;spawnDamageNumber(e.x,e.y,Math.ceil(b.damage),b.color);}blasts.push({x:b.x,y:b.y,radius:b.radius,life:.4,maxLife:.4,color:b.color});burst(b.x,b.y,b.color,20,180,{size:2.8,drag:3});shake(4);b.dead=true;} }delayedBlasts=delayedBlasts.filter(b=>!b.dead);}
 function finishRoom(){
-  if(state.exit||state.transitioning||state.victoryPortal)return;
+  if(state.exit||state.transitioning||state.victoryPortal||state.prologue)return;
   state.active=false;state.intermission=true;
   enemyBullets.length=0;strikes.length=0;rings.length=0;pulses.length=0;beams.length=0;   // the room is won; no dying to a stray shot afterwards
   state.vacuum=true;
@@ -2307,6 +2325,7 @@ function finishRoom(){
   toast('AREA '+state.room+' CLEARED');
   blasts.push({x:player.x,y:player.y,radius:340,life:.65,maxLife:.65,color:'#9cf0bd'});       // and sweep up every remnant you earned
   if(state.room%10===0&&state.room!==FINAL_ROOM&&!state.relicRooms[state.room]){showRelics();return;}
+  if(storyPortal())return;               // the way out is explained before it opens
   openPortal();
 }
 // a short arm delay so a player standing on the spawn point isn't swallowed
@@ -2931,7 +2950,8 @@ function bankAndPark(){
   $('#parkHome').onclick=showHome;
 }
 function pause(){
-  if(!state||state.over||state.victorySequence||state.upgradeOpen||state.relicOpen)return;
+  if(!state||state.over||state.prologue||state.victorySequence||state.upgradeOpen||state.relicOpen)return;
+  if(dialogueBlocking())return;                    // the channel has the frame
   state.paused=!state.paused;
   confirmingEnd=false;
   if(state.paused)openPauseMenu(); else hide();
@@ -2974,7 +2994,7 @@ function gameOver(){
   $('#toStart').onclick=showHome;
 }
 function show(markup){ui.overlay.innerHTML=markup;ui.overlay.classList.remove('hidden');}function hide(){ui.overlay.classList.add('hidden');ui.overlay.innerHTML='';}
-function hud(){ui.hp.style.width=player.hp/player.maxHp*100+'%';ui.hpText.textContent=Math.ceil(player.hp)+' / '+player.maxHp;if(ui.xpHud)ui.xpHud.style.display=state.hasDraw?'':'none';ui.xp.style.width=Math.min(100,state.xp/state.need*100)+'%';ui.xpText.textContent=Math.floor(state.xp)+' / '+state.need+' XP';ui.level.textContent='LV '+state.level;ui.kills.textContent=state.kills;paintBest();if(ui.arena)ui.arena.innerHTML='AREA '+state.room+' <span>&bull;</span> BEST '+highscore;ui.timer.textContent=new Date(state.time*1000).toISOString().slice(14,19);ui.weapons.innerHTML=Object.values(state.weapons).map(w=>'<span class="weapon-item'+(w.ultimate?' ult':'')+'"><i class="weapon-dot" style="background:'+w.color+'"></i>'+w.name+' <small>'+(w.ultimate?'MAX':'★'+w.taken.length+(w.taken.length>=5?' ▲':''))+'</small></span>').join('');paintAbilities();}
+function hud(){ui.hp.style.width=player.hp/player.maxHp*100+'%';ui.hpText.textContent=Math.ceil(player.hp)+' / '+player.maxHp;if(ui.xpHud)ui.xpHud.style.display=state.hasDraw?'':'none';ui.xp.style.width=Math.min(100,state.xp/state.need*100)+'%';ui.xpText.textContent=Math.floor(state.xp)+' / '+state.need+' XP';ui.level.textContent='LV '+state.level;ui.kills.textContent=state.kills;paintBest();if(ui.arena)ui.arena.innerHTML='AREA '+state.room+' <span>&bull;</span> BEST '+highscore;ui.timer.textContent=new Date(state.time*1000).toISOString().slice(14,19);ui.weapons.innerHTML=Object.keys(state.weapons).length?Object.values(state.weapons).map(w=>'<span class="weapon-item'+(w.ultimate?' ult':'')+'"><i class="weapon-dot" style="background:'+w.color+'"></i>'+w.name+' <small>'+(w.ultimate?'MAX':'★'+w.taken.length+(w.taken.length>=5?' ▲':''))+'</small></span>').join(''):'<span class="weapon-item none">NO ARMAMENT</span>';paintAbilities();}
 // every line of on-screen instruction reads from these, so the manual, the
 // difficulty screen and the HUD can never disagree about what the controls are
 const ctrlMove=()=>touchMode?'drag the left of the arena to fly':'WASD or arrows to move';
@@ -4499,6 +4519,7 @@ function ultimateEffects(dt){
   }
 }
 function frame(now){
+  updateDialogue(now);                   // wall-clock, and it runs with no state at all
   if(tutorial.open){const d=tutorial.last?Math.min(.05,(now-tutorial.last)/1000):0;tutorial.last=now;drawTutorial(d);}
   if(!state){ctx.clearRect(0,0,W,H);ctx.fillStyle='#090f1b';ctx.fillRect(0,0,W,H);requestAnimationFrame(frame);return;}
   const real=Math.min(.033,(now-state.last)/1000);
@@ -4507,7 +4528,7 @@ function frame(now){
   let dt=real;
   if(state.hitStop>0){ state.hitStop=Math.max(0,state.hitStop-real); dt=real*.12; }
   else if(state.dying>0) dt=real*.4;
-  if(!state.paused){ update(dt,real); ultimateEffects(dt); }
+  if(!state.paused&&!dialogueBlocking()){ update(dt,real); ultimateEffects(dt); }
   draw();
   requestAnimationFrame(frame);
 }
@@ -4872,6 +4893,7 @@ function showHowTo(){
   }).filter(Boolean);
   document.querySelectorAll('[data-manual]').forEach(b=>b.onclick=()=>{sfx('ui');devManual=b.dataset.manual==='touch'?'touch':'key';showHowTo();});
   $('#howBack').onclick=()=>{closeHowTo();showHome();};
+  paintTourExit();
 }
 function closeHowTo(){tutorial.open=false;tutorial.cards=[];}
 function drawTutorial(dt){
@@ -4977,6 +4999,7 @@ function showRoster(){
     chosen=b.dataset.pick;saveProfile();showRoster();
   });
   $('#rosterBack').onclick=showHome;
+  paintTourExit();
 }
 // ---- the threat index ------------------------------------------------------
 // a recognition chart: every hull in the game drawn from the same HULLS outline
@@ -5132,20 +5155,18 @@ function showIndex(){
   +'</div>');
   document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{sfx('ui');indexTab=b.dataset.tab;showIndex();});
   $('#indexBack').onclick=showHome;
+  paintTourExit();
 }
 // the footer reads from the same source whether or not a run is in progress
 function paintBest(){ui.best.textContent=highscore;}
+// every key the profile owns, read from the one list that already defines it —
+// hand-listing them here is how the sector keys came to survive a wipe
 function resetSavedData(){
-  localStorage.removeItem('shapeshift_best_room');
-  localStorage.removeItem('shapeshift_hard_beaten');
-  localStorage.removeItem('shapeshift_points');
-  localStorage.removeItem('shapeshift_unlocked');
-  localStorage.removeItem('shapeshift_character');
-  localStorage.removeItem('shapeshift_skill');
-  localStorage.removeItem('shapeshift_tree');
-  localStorage.removeItem('shapeshift_seen');
+  for(const k of SAVE_KEYS)localStorage.removeItem(k);
   clearRun();
   highscore=1;points=0;skill=0;tree={};unlocked=new Set([STARTER]);chosen=STARTER;seenFoes=new Set();
+  sectorsOpen=new Set([1]);chosenSector=1;
+  story={stage:'prologue'};              // and the sector introduces itself again
   paintBest();
 }
 // cycled with the arrow keys or the chevrons either side. Locked entries stay on
@@ -5219,7 +5240,7 @@ function showStart(){
   const ask=$('#resetData'),no=$('#resetNo'),yes=$('#resetYes');
   if(ask)ask.onclick=()=>{confirmingReset=true;showStart();};
   if(no)no.onclick=()=>{confirmingReset=false;showStart();};
-  if(yes)yes.onclick=()=>{resetSavedData();confirmingReset=false;showTree();};   // wiped: the cannon has to be taken again
+  if(yes)yes.onclick=()=>{resetSavedData();confirmingReset=false;if(!storyBoot())showTree();};   // wiped: it all happens again, from the opening flight
 }
 // ---- overhaul bay (the upgrade tree) ------------------------------------
 const treeAffordable=()=>devMode?0:TREE_NODES.filter(nodeBuyable).length;   // nodeBuyable already excludes hidden groups
@@ -5336,11 +5357,291 @@ function showTree(){
     buyNode(id);
     sfx(n.ult?'ult':'level');
     showTree();
+    if(id==='w:bow'&&story.stage==='bay')storyBayDone();   // the deal is struck over the cannon
   });
   const all=$('#treeAll'), none=$('#treeNone');
   if(all)all.onclick=()=>{sfx('ult');devMaxTree();toast('EVERY OVERHAUL INSTALLED — FLY A NEW RUN TO USE THEM');showTree();};
   if(none)none.onclick=()=>{sfx('ui');devClearTree();toast('OVERHAULS CLEARED — CANNON KEPT');showTree();};
   const back=$('#treeBack'); if(back)back.onclick=()=>{sfx('ui');showHome();};
+}
+// ---- the signal ---------------------------------------------------------
+// somebody has been listening to this sector, and the first time your hull drops
+// to half they open a channel. Everything the game has to teach is taught by
+// them: the bay, the manual, the hangar, the chart, the transit point, and every
+// hull you have not met before. The script is a single stage name on `story`,
+// persisted, so the tour survives a refresh and never plays twice.
+//
+// Two kinds of line. `say()` is a briefing: it holds the frame (frame() skips
+// update while one is up) and waits for the advance key. `chirp()` is a contact
+// report: no input, no freeze, gone in a few seconds. The tutorial is said; the
+// hundred hull identifications that follow are chirped, or the game would stop
+// dead every time something new flew in.
+const STORY_KEY='shapeshift_story';
+const DLG_CPS=46;            // characters a second — readable, not a crawl
+const DLG_HOLD=6;            // how much faster it types while the key is held
+const CHIRP_LIFE=3.6;        // seconds a contact report stays up
+const PROLOGUE_RACERS=8;     // seconds of drones before the racers arrive
+const PROLOGUE_GRACE=4;      // and the earliest the channel may open
+const PROLOGUE_HP=.5;        // hull fraction that opens it
+// a pilot good enough to dodge everything still has to be picked up, or the
+// opening never ends. The voice notices which of the two it is talking to.
+const PROLOGUE_CAP=42;
+const PROLOGUE_FLOOR=14;     // the opening run cannot kill you: the voice cuts in first
+const storyParam=(location.search.match(/[?&]story=([^&]+)/)||[])[1];
+let story=(()=>{ try{ const s=JSON.parse(localStorage.getItem(STORY_KEY)||'null'); return (s&&typeof s==='object')?s:{stage:'prologue'}; }catch(e){ return {stage:'prologue'}; } })();
+function saveStory(){ if(devMode)return; try{ localStorage.setItem(STORY_KEY,JSON.stringify(story)); }catch(e){} }
+function storyGo(stage){ story.stage=stage; saveStory(); }
+
+// ---- the panel -----------------------------------------------------------
+const dlg={open:false,free:false,lines:[],i:0,chars:0,blip:0,onEnd:null,chirp:0,last:0,held:false};
+const dialogueOpen=()=>dlg.open;
+// only a briefing holds the game; a contact report plays over live flight
+const dialogueBlocking=()=>dlg.open&&!dlg.free;
+const dlgRoot=()=>$('#dialogue');
+function openDialogue(lines,onEnd,free){
+  const el=dlgRoot(); if(!el)return;
+  dlg.open=true;dlg.free=!!free;dlg.lines=lines.slice();dlg.i=0;dlg.onEnd=onEnd||null;
+  dlg.chirp=free?CHIRP_LIFE:0;dlg.last=0;dlg.held=false;
+  el.className='dialogue'+(free?' free':'');
+  el.innerHTML='<div class="dlg-box"><div class="dlg-who"><i></i><b></b></div><p class="dlg-text"></p><span class="dlg-more"></span></div>';
+  dlg.who=el.querySelector('.dlg-who b');dlg.dot=el.querySelector('.dlg-who i');
+  dlg.body=el.querySelector('.dlg-text');dlg.more=el.querySelector('.dlg-more');
+  paintDialogue();
+  sfx('comm');
+}
+// each line repaints the header, since the two speakers trade back and forth
+function paintDialogue(){
+  const line=dlg.lines[dlg.i]; if(!line||!dlg.body)return;
+  const you=line.who==='p', c=characters[chosen]||characters[STARTER];
+  const name=you?c.name:'UNKNOWN SIGNAL', color=you?c.color:'#9cf0bd';
+  dlg.who.textContent=name;dlg.who.style.color=color;dlg.dot.style.background=color;
+  dlg.body.textContent='';dlg.chars=0;dlg.blip=0;
+  dlg.more.textContent=dlg.free?'':(touchMode?'TAP ▸':'SPACE ▸');
+  dlg.more.style.visibility='hidden';
+  const el=dlgRoot(); if(el)el.classList.toggle('you',you);
+}
+function closeDialogue(){
+  dlg.open=false;dlg.free=false;dlg.lines=[];dlg.onEnd=null;dlg.chirp=0;dlg.held=false;
+  const el=dlgRoot(); if(el){el.className='dialogue';el.innerHTML='';}
+}
+// wall-clock, and driven from frame() rather than update() — a briefing has to
+// keep typing while the game is held, and over a menu there is no run at all
+function updateDialogue(now){
+  if(!dlg.open)return;
+  const d=dlg.last?Math.min(.05,(now-dlg.last)/1000):0;
+  dlg.last=now;
+  const line=dlg.lines[dlg.i];
+  if(!line){closeDialogue();return;}
+  if(dlg.chars<line.text.length){
+    const fast=(keys.has(' ')||dlg.held)?DLG_HOLD:1;
+    dlg.chars=Math.min(line.text.length,dlg.chars+DLG_CPS*d*fast);
+    const shown=Math.floor(dlg.chars);
+    dlg.body.textContent=line.text.slice(0,shown);
+    if(shown>=dlg.blip){dlg.blip=shown+4;sfx('pip');}
+  }else if(dlg.more)dlg.more.style.visibility=dlg.free?'hidden':'visible';
+  if(dlg.free){
+    dlg.chirp-=d;
+    if(dlg.chirp<=0)closeDialogue();
+  }
+}
+// first press finishes the line, second moves on — the usual contract
+function dialogueAdvance(){
+  if(!dialogueBlocking())return;
+  const line=dlg.lines[dlg.i]; if(!line)return;
+  if(dlg.chars<line.text.length){dlg.chars=line.text.length;dlg.body.textContent=line.text;return;}
+  dlg.i++;
+  if(dlg.i>=dlg.lines.length){const end=dlg.onEnd;closeDialogue();if(end)end();return;}
+  paintDialogue();
+}
+function say(lines,onEnd){
+  if(!lines||!lines.length){if(onEnd)onEnd();return;}
+  // a briefing already running keeps the floor: queue behind it rather than
+  // cutting it off. Both callbacks then fire at the end of the queue, which is
+  // only ever reached by the paired contact lessons, and neither carries one.
+  if(dialogueBlocking()){
+    dlg.lines=dlg.lines.concat(lines);
+    if(onEnd){const prev=dlg.onEnd;dlg.onEnd=()=>{if(prev)prev();onEnd();};}
+    return;
+  }
+  openDialogue(lines,onEnd,false);
+}
+function chirp(text){
+  if(dialogueBlocking())return;          // never talk over a briefing
+  openDialogue([{who:'v',text}],null,true);
+}
+// tapping the panel is the touch half of SPACE, and holding after the tap runs
+// the next line fast, the same way holding the key does
+(function(){
+  const el=dlgRoot(); if(!el)return;
+  el.addEventListener('pointerdown',e=>{if(!dialogueBlocking())return;e.preventDefault();dialogueAdvance();dlg.held=true;});
+  addEventListener('pointerup',()=>{dlg.held=false;});
+  addEventListener('pointercancel',()=>{dlg.held=false;});
+})();
+
+// ---- what is said --------------------------------------------------------
+// functions rather than arrays: half of it reads the control scheme or the
+// aircraft in the hangar, and both can change between one telling and the next
+const pilotName=()=>(characters[chosen]||characters[STARTER]).name;
+const STORY={
+  rescue:hurt=>[
+    {who:'v',text:hurt
+      ?'Unidentified airframe. You are flying an unarmed hull through a live sector, and you are losing. Do you need help?'
+      :'Unidentified airframe. You have been running an unarmed hull around a live sector for a while now. Do you need help?'},
+    {who:'p',text:'...Who is this? Nothing should be able to reach me on this channel.'},
+    {who:'v',text:hurt
+      ?'Answer the question. You are under half hull and there is more of it inbound.'
+      :'Answer the question. You cannot keep this up, and you have nothing to shoot back with.'},
+    {who:'p',text:'Yes. Whatever it is you are offering — yes.'},
+    {who:'v',text:'Hold your heading. Pulling you out.'}
+  ],
+  bay:()=>[
+    {who:'v',text:'This is an overhaul bay. Everything your airframe will ever carry gets bolted on here, between flights.'},
+    {who:'p',text:'There is nothing on the rack.'},
+    {who:'v',text:'There is one thing. A VULCAN CANNON, and it costs you nothing. Take it.'}
+  ],
+  deal:()=>[
+    {who:'v',text:'It aims itself and it fires itself. You fly; it shoots. That is the whole arrangement.'},
+    {who:'p',text:'And what do you get out of this?'},
+    {who:'v',text:'A pilot. There is a war out here and the sector is losing it. Fly for me and the bay stays open to you.'},
+    {who:'p',text:'...Understood.'},
+    {who:'v',text:'Good. Everything else on that rack is bought with skill points, and skill points are paid for surviving. So survive.'}
+  ],
+  manual:()=>[
+    {who:'v',text:'Field manual. Read it now, not at half hull.'},
+    {who:'v',text:ctrlMove().charAt(0).toUpperCase()+ctrlMove().slice(1)+'. That is all you do — your guns pick their own targets. You only choose where you stand.'}
+  ],
+  hangar:()=>[
+    {who:'v',text:'The hangar. Every airframe the war can spare, and the credits to buy them come out of finished runs.'},
+    {who:'v',text:'You are in a '+pilotName()+'. No strengths, no holes. Nothing wrong with that yet.'}
+  ],
+  index:()=>[
+    {who:'v',text:'And this is the threat index. A recognition chart: every hull out here, blank until you have flown against one.'},
+    {who:'v',text:'Meet something new and its plate fills in for good. I will tell you each time it happens.'}
+  ],
+  fly:()=>[
+    {who:'v',text:'That is everything I can give you on the ground. Pick how hard you want it and get in the air.'}
+  ],
+  portal:()=>[
+    {who:'v',text:'Area clear. Nicely flown.'},
+    {who:'v',text:'Waiting out here for the next one is time you do not have, so I have opened a transit point at the centre of the area.'},
+    {who:'v',text:'Fly into it and it throws you straight through. Every area from here ends the same way.'}
+  ],
+  drift:()=>[
+    {who:'v',text:'Welcome to the CRIMSON DRIFT. It was a shipping lane once. Something collapsed it, and it never stopped burning.'},
+    {who:'v',text:'Nothing in here is a warm-up. Heavier hulls, rounds that follow you through a turn, and a boss rotation you have never flown against.'},
+    {who:'v',text:'And watch the floor. The things in here paint it, and a lane keeps burning long after the shot that drew it.'}
+  ]
+};
+
+// ---- the guided tour -----------------------------------------------------
+// during the tour a screen's BACK button becomes the way onward. It has to
+// survive the screen re-rendering itself — the index's tabs do exactly that —
+// so the three screens repaint it from here rather than being told once.
+let tourExit=null;
+function paintTourExit(){
+  if(!tourExit)return;
+  const b=$(tourExit.id); if(!b)return;
+  if(dialogueBlocking()){b.disabled=true;b.textContent='…';b.onclick=null;return;}
+  b.disabled=false;b.textContent=tourExit.label;
+  b.onclick=()=>{sfx('ui');const go=tourExit.go;tourExit=null;go();};
+}
+function tourScreen(open,id,label,lines,next){
+  tourExit={id,label,go:next};
+  say(lines,paintTourExit);   // opened first, so the screen paints its button disabled
+  open();
+}
+
+// ---- the opening run -----------------------------------------------------
+// no guns, no bay, no idea what any of this is. It is not a fight that can be
+// won and not one that can be lost: it is the twenty seconds that make the voice
+// on the radio worth answering.
+let prologueBoot=false;
+function startPrologue(){
+  storyGo('prologue');
+  prologueBoot=true;
+  reset('medium');   // on EASY the racers are slower than a stock airframe, and nothing ever lands
+  prologueBoot=false;
+}
+function prologueTick(dt){
+  state.prologueT=(state.prologueT||0)+dt;
+  if(state.prologueDone||state.prologueT<PROLOGUE_GRACE)return;
+  const hurt=player.hp/player.maxHp<=PROLOGUE_HP;
+  if(!hurt&&state.prologueT<PROLOGUE_CAP)return;
+  state.prologueDone=true;
+  say(STORY.rescue(hurt),endPrologue);
+}
+function endPrologue(){
+  // the run is finished rather than paused: `over` is what keeps SPACE from
+  // reopening it as an ordinary pause once the bay is up
+  state.paused=true;state.over=true;
+  setInRun(false);
+  storyBay();
+}
+
+// ---- the beats -----------------------------------------------------------
+function storyBay(){
+  storyGo('bay');
+  showTree();
+  say(STORY.bay());
+}
+// taking the free cannon is the one beat the player performs rather than reads
+function storyBayDone(){ say(STORY.deal(),storyManual); }
+function storyManual(){ storyGo('manual'); tourScreen(showHowTo,'#howBack','CONTINUE',STORY.manual(),storyHangar); }
+function storyHangar(){ storyGo('hangar'); tourScreen(showRoster,'#rosterBack','CONTINUE',STORY.hangar(),storyIndex); }
+function storyIndex(){ storyGo('index'); tourScreen(showIndex,'#indexBack','CONTINUE',STORY.index(),storyFly); }
+function storyFly(){
+  storyGo('done');            // the tour is over; the rest of the script is one-offs
+  closeHowTo();
+  showStart();
+  say(STORY.fly());
+}
+// the boss rows carry their own chart wording, so a capital is recognised by
+// looking for it rather than by keeping a second list of ids
+const bossDefOf=id=>bossOrder.find(b=>b.id===id)||Object.keys(SECTOR_FINALE).map(k=>SECTOR_FINALE[k]).find(b=>b.id===id)||null;
+// every hull that fills in a plate is called out. The first two craft of the
+// first real run get the full briefing — that is the lesson — and everything
+// after is a contact report, so a new hull never stops the fight.
+function storyContact(id){
+  // seeFoe only ever fires from a live spawn site, so there is nothing to test
+  // but the run itself — and `inRun` is no good here: beginRoom fills the first
+  // room before it sets the flag, which is exactly when the two lessons are owed
+  if(!state||state.prologue)return;
+  const boss=bossDefOf(id);
+  if(boss){chirp('CAPITAL CONTACT — '+boss.name+' · THREAT INDEX UPDATED');return;}
+  const foe=CODEX[id]; if(!foe)return;
+  if((story.taught||0)<2){
+    story.taught=(story.taught||0)+1;saveStory();
+    say([{who:'v',text:'Contact — '+foe.name+'. '+foe.line},
+         {who:'v',text:'Plate filled. Your threat index is updated, and it stays that way.'}]);
+    return;
+  }
+  chirp('NEW CONTACT — '+foe.name+' · THREAT INDEX UPDATED');
+}
+// the first area ever cleared is where the transit point is explained, so it is
+// held shut until the briefing is finished
+function storyPortal(){
+  if(story.portal||state.prologue)return false;
+  story.portal=true;saveStory();
+  say(STORY.portal(),openPortal);
+  return true;
+}
+function storyDrift(){
+  if(story.drift||state.prologue||state.sector!==2||state.room!==1)return;
+  story.drift=true;saveStory();
+  say(STORY.drift());
+}
+// whatever the script still owes, resumed on load. Returns true when it has put
+// something on screen, so the ordinary opening screens stay out of its way.
+function storyBoot(){
+  if(storyParam==='0'&&story.stage!=='done'){storyGo('done');return false;}
+  switch(story.stage){
+    case 'prologue': startPrologue(); return true;
+    case 'bay':      storyBay();      return true;
+    case 'manual':   storyManual();   return true;
+    case 'hangar':   storyHangar();   return true;
+    case 'index':    storyIndex();    return true;
+  }
+  return false;
 }
 // ---- developer mode -----------------------------------------------------
 // a sandbox: the real profile is held aside in memory and nothing is written to
@@ -5348,7 +5649,7 @@ function showTree(){
 function enterDev(){
   if(devMode)return;
   devBackup={points,skill,highscore,chosen,unlocked:new Set(unlocked),tree:Object.assign({},tree),
-    sectorsOpen:new Set(sectorsOpen),chosenSector,touchMode,seenFoes:new Set(seenFoes)};
+    sectorsOpen:new Set(sectorsOpen),chosenSector,touchMode,seenFoes:new Set(seenFoes),story:Object.assign({},story)};
   devMode=true;
   for(const id of Object.keys(characters))unlocked.add(id);
   toast('DEVELOPER MODE ON');
@@ -5359,6 +5660,7 @@ function exitDev(){
   points=devBackup.points;skill=devBackup.skill;highscore=devBackup.highscore;
   chosen=devBackup.chosen;unlocked=devBackup.unlocked;tree=devBackup.tree;
   sectorsOpen=devBackup.sectorsOpen;chosenSector=devBackup.chosenSector;seenFoes=devBackup.seenFoes;
+  story=devBackup.story;
   setTouchMode(devBackup.touchMode);      // whatever the device itself asked for
   devManual=null;                         // and the manual goes back to teaching it
   devBackup=null;
@@ -5490,4 +5792,4 @@ paintSoundBtn();
 // browsers only allow audio to start from a gesture, so open the context on the first one
 addEventListener('pointerdown',()=>{if(soundOn)initAudio();},{once:true});
 $('#pauseBtn').onclick=pause;
-paintBest();paintBrand();paintControlHints();measureCanvas();setInRun(false);if(treeHas('w:bow'))showHome();else showTree();requestAnimationFrame(frame);
+paintBest();paintBrand();paintControlHints();measureCanvas();setInRun(false);if(!storyBoot()){if(treeHas('w:bow'))showHome();else showTree();}requestAnimationFrame(frame);
