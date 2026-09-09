@@ -470,3 +470,19 @@ body.touch.fs-on .weapon-hud{top:calc(env(safe-area-inset-top,0px) + 60px)}
 /* the opening run carries nothing, and the armament readout should say so
    rather than sit empty and look broken */
 .weapon-item.none{color:#5d6b85;border-style:dashed;letter-spacing:.16em}
+
+
+/* ---- apex overhauls, the reach's field, and the fourth ability row --------
+   The apex card is the ultimate card pushed one step further: same reserved
+   slot, its own colour, so a run can tell at a glance which of the two rare
+   cards it has been handed. */
+.card.apex{border-color:#ffb3f0;box-shadow:0 0 26px rgba(255,179,240,.22)}
+.card.apex .card-key{color:#ffb3f0}
+.card.apex h3{color:#ffb3f0}
+.lo-weapon .lo-ult{background:rgba(255,179,240,.14);border-color:#ffb3f0;color:#ffb3f0}
+/* the slow field's readout, so it never reads as another cyan cooldown */
+#slowRow.ready b{color:#ffb3f0}
+#slowRow.active b,#slowRow.active small{color:#ffb3f0;border-color:#ffb3f0}
+/* four rows of abilities is taller than three: keep the stack off the footer on
+   the shortest arenas rather than letting it run under the fold */
+@media(max-height:760px){.ability-hud{gap:4px;padding:6px 9px}.ability{font-size:9px}}
